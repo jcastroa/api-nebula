@@ -1,0 +1,30 @@
+# FastAPI y servidor
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Base de datos
+mysql-connector-python==8.2.0
+
+# Cache
+redis==5.0.1
+
+# Seguridad
+bcrypt==4.1.1
+PyJWT==2.8.0
+
+# Configuración y validación
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+email-validator==2.1.0
+
+# HTTP requests
+httpx==0.25.2
+
+# Background tasks
+schedule==1.2.0
+
+# Desarrollo (opcional)
+black==23.11.0
+isort==5.12.0

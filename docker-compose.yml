@@ -1,0 +1,127 @@
+version: "3.9"
+
+services:
+  # ==========================================
+  # APLICACIÓN FASTAPI
+  # ==========================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: auth_app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - APP_NAME=Sistema de Autenticación
+      - APP_VERSION=1.0.0
+      
+      # JWT Configuration
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-mi_jwt_secret_super_seguro_2024_cambiar_en_produccion}
+      - JWT_ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - REFRESH_TOKEN_EXPIRE_DAYS=7
+      
+      # Database MySQL
+      - DB_HOST=mariadb-nebula  # Cambiado para coincidir con el nombre del servicio
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=password
+      - DB_NAME=nebula
+      - DB_POOL_SIZE=10
+      
+      # Redis Configuration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      
+      # Security
+      - RECAPTCHA_SECRET_KEY=${RECAPTCHA_SECRET_KEY:-TU_CLAVE_RECAPTCHA}
+      - BCRYPT_ROUNDS=12
+      - INACTIVITY_TIMEOUT_SECONDS=3600
+      
+      # CORS
+      - ALLOWED_ORIGINS=http://localhost:3000,https://tu-frontend.com
+      
+      # Rate Limiting
+      - RATE_LIMIT_REQUESTS=5
+      - RATE_LIMIT_WINDOW=300
+      
+      # Workers
+      - CLEANUP_SCHEDULE=02:00
+      - CLEANUP_RETENTION_HOURS=6
+
+      # Logging Configuration
+      - LOG_LEVEL=INFO
+      - LOG_TO_FILE=true
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    
+    volumes:
+      - ./logs:/app/logs
+    
+    depends_on:
+      - redis
+      - mariadb-nebula
+    
+  # ==========================================
+  # BASE DE DATOS MYSQL
+  # ==========================================
+  mariadb-nebula:
+    build:
+      context: ./docker/mysql
+    container_name: mariadb-nebula
+    image: mariadb
+    restart: unless-stopped
+    environment:      
+      - MARIADB_ROOT_PASSWORD=password
+    ports:
+      - "45000:3306"
+    volumes:
+      - ./database:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ==========================================
+  # REDIS CACHE
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: auth_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    
+    command: [
+      "redis-server",
+      "--appendonly", "yes",
+      "--appendfsync", "everysec",
+      "--maxmemory", "256mb",
+      "--maxmemory-policy", "allkeys-lru",
+      "--timeout", "300",
+      "--tcp-keepalive", "60"
+    ]
+    
+    volumes:
+      - redis_data:/data
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# ==========================================
+# VOLÚMENES PERSISTENTES
+# ==========================================
+volumes:
+  redis_data:
+    driver: local
