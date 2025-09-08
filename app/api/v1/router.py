@@ -6,7 +6,7 @@
 from fastapi import APIRouter
 from datetime import datetime
 
-from app.api.v1.endpoints import auth, users, admin
+from app.api.v1.endpoints import auth, users, admin, negocios
 from app.core.database import get_db_connection
 from app.core.redis_client import redis_client
 from app.config import settings
@@ -18,6 +18,7 @@ api_router = APIRouter()
 api_router.include_router(auth.router, tags=["authentication"])
 api_router.include_router(users.router, tags=["users"])
 api_router.include_router(admin.router, tags=["administration"])
+api_router.include_router(negocios.router, tags=["negocios"])  # NUEVO
 
 # Health check endpoint
 @api_router.get("/health")
@@ -25,13 +26,44 @@ async def health_check():
     """Verificar estado de todos los servicios"""
     
     # Test MySQL
-    mysql_status = "OK" if get_db_connection() else "ERROR"
+    try:
+        with get_db_connection() as conn:
+            mysql_status = "OK"
+    except:
+        mysql_status = "ERROR"
     
     # Test Redis  
     redis_status = "OK" if redis_client.ping() else "ERROR"
+
+    # Test Firestore
+    try:
+        from app.services.firestore_service import FirestoreService
+        firestore_service = FirestoreService()
+        firestore_health = await firestore_service.health_check()
+        firestore_status = firestore_health.get("status", "ERROR")
+    except Exception as e:
+        firestore_status = f"ERROR: {str(e)}"
+    
+    # Test Worker de Monitoreo
+    try:
+        from app.workers.monitoring_worker import firestore_monitoring_worker
+        monitoring_status = "OK" if firestore_monitoring_worker.running else "STOPPED"
+    except:
+        monitoring_status = "ERROR"
+    
+    # Test WebSocket Manager
+    try:
+        from app.websocket.websocket_manager import websocket_manager
+        ws_stats = websocket_manager.get_active_connections_stats()
+        websocket_status = "OK"
+    except:
+        websocket_status = "ERROR"
+        ws_stats = {}
     
     # Status general
-    overall_status = "OK" if mysql_status == "OK" and redis_status == "OK" else "ERROR"
+    all_services = [mysql_status, redis_status, firestore_status, monitoring_status, websocket_status]
+    overall_status = "OK" if all(status == "OK" for status in all_services) else "PARTIAL"
+   
     
     return {
         "status": overall_status,
@@ -39,7 +71,11 @@ async def health_check():
         "version": settings.APP_VERSION,
         "services": {
             "mysql": mysql_status,
-            "redis": redis_status
+            "redis": redis_status,
+            "firestore": firestore_status,
+            "monitoring_worker": monitoring_status,
+            "websocket_manager": websocket_status
         },
+        "websocket_stats": ws_stats,
         "environment": settings.ENVIRONMENT
     }

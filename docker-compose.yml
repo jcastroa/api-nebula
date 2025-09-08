@@ -23,6 +23,10 @@ services:
       - JWT_ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
       - REFRESH_TOKEN_EXPIRE_DAYS=7
+
+      # Firebase/Firestore
+      - FIREBASE_CREDENTIALS_JSON=${FIREBASE_CREDENTIALS_JSON}
+      - FIREBASE_CREDENTIALS_PATH=/app/credentials/chatbot-citas1-firebase-adminsdk-fbsvc-bafd1882fe.json
       
       # Database MySQL
       - DB_HOST=mariadb-nebula  # Cambiado para coincidir con el nombre del servicio
@@ -62,6 +66,7 @@ services:
     
     volumes:
       - ./logs:/app/logs
+      - ./credentials:/app/credentials
     
     depends_on:
       - redis

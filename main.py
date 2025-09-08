@@ -26,7 +26,7 @@ from app.api.v1.router import api_router
 from app.middleware.auth_middleware import AuthMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.logging import LoggingMiddleware
-from app.workers.scheduler import start_background_tasks
+from app.workers.scheduler import start_background_tasks, stop_background_tasks
 
 # Logger para este módulo
 logger = logging.getLogger(__name__)
@@ -83,18 +83,72 @@ async def startup_handler():
     logger.info(f"   • Debug: {settings.DEBUG}")
     logger.info(f"   • Environment: {settings.ENVIRONMENT}")
     
-    try:
-        await start_background_tasks()
-        logger.info("🔄 Background tasks iniciadas")
-    except Exception as e:
-        logger.error(f"❌ Error iniciando background tasks: {e}")
-        raise
+    # try:
+    #     await start_background_tasks()
+    #     logger.info("🔄 Background tasks iniciadas")
+    # except Exception as e:
+    #     logger.error(f"❌ Error iniciando background tasks: {e}")
+    #     raise
     
-    logger.info("✅ Aplicación iniciada correctamente")
+    # logger.info("✅ Aplicación iniciada correctamente")
+    # Verificar conexiones básicas
+    try:
+        # Test Redis
+        from app.core.redis_client import redis_client
+        if redis_client.ping():
+            logger.info("✅ Redis: Conectado")
+        else:
+            logger.warning("⚠️  Redis: No disponible")
+        
+        # Test MySQL
+        from app.core.database import get_db_connection
+        try:
+            with get_db_connection() as conn:
+                logger.info("✅ MySQL: Conectado")
+        except Exception as e:
+            logger.warning(f"⚠️  MySQL: Error - {e}")
+        
+        # Test Firestore
+        try:
+            from app.services.firestore_service import FirestoreService
+            firestore_service = FirestoreService()
+            health = await firestore_service.health_check()
+            if health.get("firestore_connected"):
+                logger.info("✅ Firestore: Conectado")
+            else:
+                logger.warning("⚠️  Firestore: No disponible")
+        except Exception as e:
+            logger.warning(f"⚠️  Firestore: Error - {e}")
+        
+        # Iniciar workers de background
+        await start_background_tasks()
+        
+        logger.info("=" * 80)
+        logger.info("✅ SISTEMA INICIADO CORRECTAMENTE")
+        logger.info("📡 Worker de monitoreo Firestore: ACTIVO (30s)")
+        logger.info("🔌 WebSocket para notificaciones: DISPONIBLE")
+        logger.info("🧹 Tareas de limpieza: PROGRAMADAS")
+        logger.info("=" * 80)
+        
+    except Exception as e:
+        logger.error(f"❌ Error durante startup: {e}")
 
 async def shutdown_handler():
     """Limpieza al cerrar"""
     logger.info("🛑 Cerrando aplicación...")
+
+    try:
+        # Detener workers de background
+        await stop_background_tasks()
+        
+        logger.info("✅ Workers detenidos correctamente")
+        logger.info("✅ Aplicación cerrada limpiamente")
+        
+    except Exception as e:
+        logger.error(f"❌ Error durante shutdown: {e}")
+    
+    logger.info("=" * 50)
+
     logger.info("✅ Aplicación cerrada correctamente")
 
 # Crear instancia de la aplicación
@@ -111,39 +165,7 @@ async def root():
         "status": "running"
     }
 
-# Endpoint para probar logging
-@app.get("/test-logging")
-async def test_logging():
-    """Endpoint para probar que el logging funciona"""
-    
-    # Probar diferentes niveles
-    logger.debug("🐛 DEBUG: Mensaje de debug")
-    logger.info("ℹ️  INFO: Endpoint de test ejecutado")
-    logger.warning("⚠️  WARNING: Mensaje de advertencia de prueba")
-    logger.error("❌ ERROR: Mensaje de error de prueba (simulado)")
-    
-    # Probar logger específico de middleware
-    middleware_logger = logging.getLogger("app.middleware.logging")
-    middleware_logger.info("🌐 MIDDLEWARE: Test desde endpoint")
-    
-    # Probar logger específico de auth
-    auth_logger = logging.getLogger("app.api.v1.endpoints.auth")
-    auth_logger.info("🔐 AUTH: Test de logging de autenticación")
-    
-    return {
-        "message": "✅ Logging test completed successfully",
-        "logs_tested": ["DEBUG", "INFO", "WARNING", "ERROR"],
-        "loggers_tested": ["main", "middleware", "auth"],
-        "check_logs": {
-            "docker": "docker-compose logs -f app",
-            "files": [
-                "/app/logs/app.log",
-                "/app/logs/http.log", 
-                "/app/logs/auth.log",
-                "/app/logs/errors.log"
-            ]
-        }
-    }
+
 
 if __name__ == "__main__":
     # Solo para desarrollo local
