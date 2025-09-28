@@ -46,7 +46,7 @@ async def health_check():
     
     # Test Worker de Monitoreo
     try:
-        from app.workers.monitoring_worker import firestore_monitoring_worker
+        from app.workers.smart_monitoring_worker import firestore_monitoring_worker
         monitoring_status = "OK" if firestore_monitoring_worker.running else "STOPPED"
     except:
         monitoring_status = "ERROR"

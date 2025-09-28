@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 
 from app.workers.cleanup_worker import CleanupWorker
-from app.workers.monitoring_worker import firestore_monitoring_worker
+from app.workers.smart_monitoring_worker import firestore_monitoring_worker
 from app.websocket.websocket_manager import websocket_manager
 from app.config import settings
 
@@ -174,7 +174,7 @@ class TaskScheduler:
             redis_health = redis_client.health_check()
 
             # Stats del worker de monitoreo
-            monitoring_status = firestore_monitoring_worker.get_monitoring_status()
+            #monitoring_status = firestore_monitoring_worker.get_monitoring_status()
             
             # Stats de WebSocket
             ws_stats = websocket_manager.get_active_connections_stats()
@@ -182,11 +182,11 @@ class TaskScheduler:
             metrics_data = {
                 "timestamp": timestamp,
                 "redis": redis_health,
-                "monitoring_worker": {
-                    "running": monitoring_status.get("worker_running", False),
-                    "known_negocios_count": len(monitoring_status.get("known_negocios", [])),
-                    "last_update": monitoring_status.get("last_update")
-                },
+                # "monitoring_worker": {
+                #     "running": monitoring_status.get("worker_running", False),
+                #     "known_negocios_count": len(monitoring_status.get("known_negocios", [])),
+                #     "last_update": monitoring_status.get("last_update")
+                # },
                 "websocket": ws_stats,
                 "scheduler_run": True
             }
@@ -281,18 +281,18 @@ class TaskScheduler:
             logger.error(f"Error obteniendo info de schedule: {e}")
         
         # Información de workers
-        monitoring_status = firestore_monitoring_worker.get_monitoring_status()
+        #monitoring_status = firestore_monitoring_worker.get_monitoring_status()
         ws_stats = websocket_manager.get_active_connections_stats()
         
         return {
             "scheduled_jobs": jobs,
             "workers": {
-                "monitoring_worker": {
-                    "running": monitoring_status.get("worker_running", False),
-                    "interval_seconds": firestore_monitoring_worker.check_interval,
-                    "known_negocios": len(monitoring_status.get("known_negocios", [])),
-                    "last_update": monitoring_status.get("last_update")
-                },
+                # "monitoring_worker": {
+                #     "running": monitoring_status.get("worker_running", False),
+                #     "interval_seconds": firestore_monitoring_worker.check_interval,
+                #     "known_negocios": len(monitoring_status.get("known_negocios", [])),
+                #     "last_update": monitoring_status.get("last_update")
+                # },
                 "websocket_manager": {
                     "total_connections": ws_stats.get("total_connections", 0),
                     "total_negocios": ws_stats.get("total_negocios", 0),

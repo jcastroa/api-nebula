@@ -223,10 +223,11 @@ class FirestoreService:
             Número de solicitudes activas
         """
         try:
-            query = self.db.collection("solicitudes").where("codigo_negocio", "==", codigo_negocio)
-            
-            # Excluir registros eliminados
-            query = query.where("deleted", "==", False)
+            today = datetime.today().strftime("%d/%m/%Y")
+            query = self.db.collection("citas") \
+            .where("codigo_negocio", "==", codigo_negocio) \
+            .where("fecha", "==", today.isoformat()) \
+            .where("estado", "in", ["pendiente", "confirmada"])  # Solo estos estados
             
             # Usar aggregation query para contar (más eficiente)
             from google.cloud.firestore_v1.base_query import FieldFilter
@@ -261,16 +262,20 @@ class FirestoreService:
         """
         try:
             # Obtener valores únicos de codigo_negocio
-            query = self.db.collection("solicitudes").where("deleted", "==", False)
+            query = self.db.collection("negocios").where("estado", "==", True)
             
             docs = query.stream()
             negocios = set()
             
             for doc in docs:
-                data = doc.to_dict()
-                codigo_negocio = data.get("codigo_negocio")
+                logger.info(f"Negocio ID: {doc.id}, Data: {doc.to_dict()}")
+                codigo_negocio = doc.id             
                 if codigo_negocio:
                     negocios.add(codigo_negocio)
+
+            # Imprimir el contenido de negocios
+            logger.info(f"Negocios encontrados: {list(negocios)}")
+            logger.info(f"Total de negocios: {len(negocios)}")
             
             return list(negocios)
             
