@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     INACTIVITY_TIMEOUT_SECONDS: int = 3600
     
     # CORS - Cambiar a string y parsear
-    ALLOWED_ORIGINS: str = "http://localhost:3000,https://tu-frontend.com,http://200.58.103.40:6000"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,https://tu-frontend.com,https://cita247.com"
     
     # Rate Limiting
     RATE_LIMIT_REQUESTS: int = 5
