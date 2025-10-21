@@ -48,7 +48,7 @@ services:
       - INACTIVITY_TIMEOUT_SECONDS=3600
       
       # CORS
-      - ALLOWED_ORIGINS=http://localhost:3005,https://tu-frontend.com
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
       
       # Rate Limiting
       - RATE_LIMIT_REQUESTS=5
