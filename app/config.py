@@ -38,11 +38,18 @@ class Settings(BaseSettings):
     INACTIVITY_TIMEOUT_SECONDS: int = 3600
     
     # CORS - Cambiar a string y parsear
-    ALLOWED_ORIGINS: str = "http://localhost:3000,https://tu-frontend.com,https://cita247.com"
+    ALLOWED_ORIGINS: str = "http://localhost:3005,https://tu-frontend.com,https://cita247.com"
     
     # Rate Limiting
     RATE_LIMIT_REQUESTS: int = 5
     RATE_LIMIT_WINDOW: int = 300
+
+    META_APP_ID : str = "4247760212109780"
+    META_APP_SECRET : str = "94dd98cd24666c93199197a830573924"
+    META_API_VERSION : str = "v21.0"
+
+    REDIRECT_BASE_URI : str = "http://localhost:3005"
+    WEBHOOK_BASE_URI : str = "http://localhost:8064/webhook/"
     
     @field_validator('ALLOWED_ORIGINS')
     @classmethod

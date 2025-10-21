@@ -48,7 +48,7 @@ services:
       - INACTIVITY_TIMEOUT_SECONDS=3600
       
       # CORS
-      - ALLOWED_ORIGINS=http://localhost:3000,https://tu-frontend.com
+      - ALLOWED_ORIGINS=http://localhost:3005,https://tu-frontend.com
       
       # Rate Limiting
       - RATE_LIMIT_REQUESTS=5
@@ -82,7 +82,7 @@ services:
     image: mariadb
     restart: unless-stopped
     environment:      
-      - MARIADB_ROOT_PASSWORD=password
+      - MYSQL_ROOT_PASSWORD=password
     ports:
       - "45000:3306"
     volumes:

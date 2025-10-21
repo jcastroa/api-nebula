@@ -121,7 +121,7 @@ async def startup_handler():
             logger.warning(f"⚠️  Firestore: Error - {e}")
         
         # Iniciar workers de background
-        await start_background_tasks()
+        #await start_background_tasks()
         
         logger.info("=" * 80)
         logger.info("✅ SISTEMA INICIADO CORRECTAMENTE")
