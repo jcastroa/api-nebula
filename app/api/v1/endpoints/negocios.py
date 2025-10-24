@@ -5,7 +5,7 @@ y CRUD de negocios
 """
 from enum import Enum
 import math
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, Path
 from typing import Optional, Dict, Any, List
 import logging
 import json
@@ -668,8 +668,8 @@ async def get_websocket_token(
 
 @router.patch("/{negocio_id}/estado", response_model=Dict[str, Any])
 async def cambiar_estado_negocio(
-    negocio_id: int,
     estado_data: NegocioEstadoUpdate,
+    negocio_id: int = Path(..., gt=0, description="ID numérico del negocio"),
     current_user: dict = Depends(get_current_user),
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
@@ -780,8 +780,8 @@ async def cambiar_estado_negocio(
 
 @router.put("/{negocio_id}", response_model=Dict[str, Any])
 async def actualizar_negocio(
-    negocio_id: int,
     negocio_data: NegocioUpdate,
+    negocio_id: int = Path(..., gt=0, description="ID numérico del negocio"),
     current_user: dict = Depends(get_current_user),
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
@@ -943,7 +943,7 @@ async def actualizar_negocio(
 
 @router.get("/{negocio_id}", response_model=Dict[str, Any])
 async def obtener_negocio(
-    negocio_id: int,
+    negocio_id: int = Path(..., gt=0, description="ID numérico del negocio"),
     current_user: dict = Depends(get_current_user),
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
@@ -951,7 +951,7 @@ async def obtener_negocio(
     Obtener un negocio específico por ID desde MariaDB
 
     Args:
-        negocio_id: ID del negocio a obtener
+        negocio_id: ID numérico del negocio (debe ser mayor a 0)
 
     Returns:
         Datos completos del negocio con indicador de existencia en Firestore
