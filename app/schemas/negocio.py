@@ -14,10 +14,12 @@ class NegocioBase(BaseModel):
     telefono_contacto: Optional[str] = None
     email: Optional[EmailStr] = None
     nombre_responsable: Optional[str] = None
+    direccion: Optional[str] = None
     activo: bool = True
     permite_pago: bool = False
     envia_recordatorios: bool = False
     es_principal: bool = False
+    con_confirmacion_cita: bool = False
 
     @validator('nombre')
     def validate_nombre(cls, v):
@@ -62,10 +64,12 @@ class NegocioUpdate(BaseModel):
     telefono_contacto: Optional[str] = None
     email: Optional[EmailStr] = None
     nombre_responsable: Optional[str] = None
+    direccion: Optional[str] = None
     activo: Optional[bool] = None
     permite_pago: Optional[bool] = None
     envia_recordatorios: Optional[bool] = None
     es_principal: Optional[bool] = None
+    con_confirmacion_cita: Optional[bool] = None
 
     @validator('nombre')
     def validate_nombre(cls, v):
@@ -103,9 +107,11 @@ class NegocioEstadoUpdate(BaseModel):
 
 class NegocioResponse(NegocioBase):
     """Schema para respuesta de negocio"""
-    id: str
+    id: int
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    estado: Optional[str] = None
+    existe_en_firestore: Optional[bool] = False
 
     class Config:
         from_attributes = True

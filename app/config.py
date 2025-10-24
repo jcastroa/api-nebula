@@ -50,6 +50,9 @@ class Settings(BaseSettings):
 
     REDIRECT_BASE_URI : str = "http://localhost:3005"
     WEBHOOK_BASE_URI : str = "http://localhost:8064/webhook/"
+
+    # Firebase
+    FIREBASE_CREDENTIALS_PATH: str = "credentials/firebase-credentials.json"
     
     @field_validator('ALLOWED_ORIGINS')
     @classmethod

@@ -12,6 +12,7 @@ import json
 from datetime import datetime, date, timedelta
 
 from app.services.firestore_service import FirestoreService
+from app.services.consultorio_service import ConsultorioService
 from app.websocket.websocket_manager import websocket_manager
 from app.dependencies import get_current_user
 from app.core.redis_client import redis_client
@@ -75,29 +76,36 @@ async def listar_negocios(
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
     """
-    Listar todos los negocios con búsqueda opcional
+    Listar todos los negocios con búsqueda opcional desde MariaDB
 
     Args:
         search: Término de búsqueda para filtrar por nombre, RUC o email
         activo_only: Si es True, solo retorna negocios activos
 
     Returns:
-        Lista de negocios con sus datos completos
+        Lista de negocios con sus datos completos e indicador de existencia en Firestore
     """
     try:
-        logger.info(f"Listing negocios - search: {search}, activo_only: {activo_only}")
+        logger.info(f"Listing negocios from MariaDB - search: {search}, activo_only: {activo_only}")
 
-        # Obtener negocios del servicio
-        negocios = await firestore_service.get_all_negocios(
+        # Obtener negocios de MariaDB
+        consultorios = ConsultorioService.get_all_consultorios(
             search_term=search,
             activo_only=activo_only
         )
 
+        # Agregar indicador de existencia en Firestore
+        for consultorio in consultorios:
+            consultorio['existe_en_firestore'] = ConsultorioService.verificar_existe_en_firestore(
+                consultorio['id'],
+                firestore_service
+            )
+
         return {
             "success": True,
-            "total": len(negocios),
-            "data": negocios,
-            "message": f"Se encontraron {len(negocios)} negocios"
+            "total": len(consultorios),
+            "data": consultorios,
+            "message": f"Se encontraron {len(consultorios)} negocios"
         }
 
     except Exception as e:
@@ -112,7 +120,7 @@ async def crear_negocio(
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
     """
-    Crear un nuevo negocio
+    Crear un nuevo negocio en MariaDB
 
     Args:
         negocio_data: Datos del negocio a crear
@@ -121,16 +129,22 @@ async def crear_negocio(
         ID del negocio creado y sus datos
     """
     try:
-        logger.info(f"Creating negocio: {negocio_data.nombre}")
+        logger.info(f"Creating negocio in MariaDB: {negocio_data.nombre}")
 
         # Convertir schema a dict
         negocio_dict = negocio_data.dict()
 
-        # Crear negocio en Firestore
-        negocio_id = await firestore_service.create_negocio(negocio_dict)
+        # Crear negocio en MariaDB
+        negocio_id = ConsultorioService.create_consultorio(negocio_dict)
 
         # Obtener el negocio creado para retornarlo
-        negocio = await firestore_service.get_negocio_by_id(negocio_id)
+        negocio = ConsultorioService.get_consultorio_by_id(negocio_id)
+
+        # Verificar si existe en Firestore
+        negocio['existe_en_firestore'] = ConsultorioService.verificar_existe_en_firestore(
+            negocio_id,
+            firestore_service
+        )
 
         return {
             "success": True,
@@ -599,34 +613,34 @@ async def get_websocket_token(
 
 @router.patch("/{negocio_id}/estado", response_model=Dict[str, Any])
 async def cambiar_estado_negocio(
-    negocio_id: str,
+    negocio_id: int,
     estado_data: NegocioEstadoUpdate,
     current_user: dict = Depends(get_current_user),
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
     """
-    Cambiar el estado activo/inactivo de un negocio
+    Cambiar el estado activo/inactivo de un negocio en MariaDB
 
     Args:
         negocio_id: ID del negocio
         estado_data: Nuevo estado (activo: true/false)
 
     Returns:
-        Datos actualizados del negocio
+        Datos actualizados del negocio con indicador de existencia en Firestore
     """
     try:
         logger.info(f"Changing estado for negocio {negocio_id} to {estado_data.activo}")
 
         # Verificar que el negocio existe
-        negocio_existente = await firestore_service.get_negocio_by_id(negocio_id)
+        negocio_existente = ConsultorioService.get_consultorio_by_id(negocio_id)
         if not negocio_existente:
             raise HTTPException(
                 status_code=404,
                 detail=f"Negocio con ID {negocio_id} no encontrado"
             )
 
-        # Cambiar estado
-        success = await firestore_service.cambiar_estado_negocio(
+        # Cambiar estado en MariaDB
+        success = ConsultorioService.cambiar_estado_consultorio(
             negocio_id,
             estado_data.activo
         )
@@ -638,7 +652,13 @@ async def cambiar_estado_negocio(
             )
 
         # Obtener negocio actualizado
-        negocio_actualizado = await firestore_service.get_negocio_by_id(negocio_id)
+        negocio_actualizado = ConsultorioService.get_consultorio_by_id(negocio_id)
+
+        # Verificar si existe en Firestore
+        negocio_actualizado['existe_en_firestore'] = ConsultorioService.verificar_existe_en_firestore(
+            negocio_id,
+            firestore_service
+        )
 
         estado_texto = "activado" if estado_data.activo else "desactivado"
 
@@ -657,26 +677,26 @@ async def cambiar_estado_negocio(
 
 @router.put("/{negocio_id}", response_model=Dict[str, Any])
 async def actualizar_negocio(
-    negocio_id: str,
+    negocio_id: int,
     negocio_data: NegocioUpdate,
     current_user: dict = Depends(get_current_user),
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
     """
-    Actualizar un negocio existente
+    Actualizar un negocio existente en MariaDB
 
     Args:
         negocio_id: ID del negocio a actualizar
         negocio_data: Datos a actualizar (solo los campos proporcionados)
 
     Returns:
-        Datos actualizados del negocio
+        Datos actualizados del negocio con indicador de existencia en Firestore
     """
     try:
-        logger.info(f"Updating negocio: {negocio_id}")
+        logger.info(f"Updating negocio in MariaDB: {negocio_id}")
 
         # Verificar que el negocio existe
-        negocio_existente = await firestore_service.get_negocio_by_id(negocio_id)
+        negocio_existente = ConsultorioService.get_consultorio_by_id(negocio_id)
         if not negocio_existente:
             raise HTTPException(
                 status_code=404,
@@ -692,8 +712,8 @@ async def actualizar_negocio(
                 detail="No se proporcionaron campos para actualizar"
             )
 
-        # Actualizar negocio
-        success = await firestore_service.update_negocio(negocio_id, update_dict)
+        # Actualizar negocio en MariaDB
+        success = ConsultorioService.update_consultorio(negocio_id, update_dict)
 
         if not success:
             raise HTTPException(
@@ -702,7 +722,13 @@ async def actualizar_negocio(
             )
 
         # Obtener negocio actualizado
-        negocio_actualizado = await firestore_service.get_negocio_by_id(negocio_id)
+        negocio_actualizado = ConsultorioService.get_consultorio_by_id(negocio_id)
+
+        # Verificar si existe en Firestore
+        negocio_actualizado['existe_en_firestore'] = ConsultorioService.verificar_existe_en_firestore(
+            negocio_id,
+            firestore_service
+        )
 
         return {
             "success": True,
@@ -719,30 +745,36 @@ async def actualizar_negocio(
 
 @router.get("/{negocio_id}", response_model=Dict[str, Any])
 async def obtener_negocio(
-    negocio_id: str,
+    negocio_id: int,
     current_user: dict = Depends(get_current_user),
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
     """
-    Obtener un negocio específico por ID
+    Obtener un negocio específico por ID desde MariaDB
 
     Args:
         negocio_id: ID del negocio a obtener
 
     Returns:
-        Datos completos del negocio
+        Datos completos del negocio con indicador de existencia en Firestore
     """
     try:
-        logger.info(f"Getting negocio: {negocio_id}")
+        logger.info(f"Getting negocio from MariaDB: {negocio_id}")
 
-        # Obtener negocio del servicio
-        negocio = await firestore_service.get_negocio_by_id(negocio_id)
+        # Obtener negocio de MariaDB
+        negocio = ConsultorioService.get_consultorio_by_id(negocio_id)
 
         if not negocio:
             raise HTTPException(
                 status_code=404,
                 detail=f"Negocio con ID {negocio_id} no encontrado"
             )
+
+        # Verificar si existe en Firestore
+        negocio['existe_en_firestore'] = ConsultorioService.verificar_existe_en_firestore(
+            negocio_id,
+            firestore_service
+        )
 
         return {
             "success": True,
