@@ -120,7 +120,7 @@ async def crear_negocio(
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
     """
-    Crear un nuevo negocio en MariaDB
+    Crear un nuevo negocio en MariaDB Y Firestore
 
     Args:
         negocio_data: Datos del negocio a crear
@@ -129,15 +129,45 @@ async def crear_negocio(
         ID del negocio creado y sus datos
     """
     try:
-        logger.info(f"Creating negocio in MariaDB: {negocio_data.nombre}")
+        logger.info(f"Creating negocio in MariaDB and Firestore: {negocio_data.nombre}")
 
         # Convertir schema a dict
         negocio_dict = negocio_data.dict()
 
-        # Crear negocio en MariaDB
+        # 1. Crear negocio en MariaDB primero para obtener el ID
         negocio_id = ConsultorioService.create_consultorio(negocio_dict)
+        logger.info(f"Negocio created in MariaDB with ID: {negocio_id}")
 
-        # Obtener el negocio creado para retornarlo
+        # 2. Crear también en Firestore usando el mismo ID
+        try:
+            # Preparar datos para Firestore
+            firestore_data = {
+                'id': negocio_id,
+                'nombre': negocio_dict.get('nombre'),
+                'ruc': negocio_dict.get('ruc'),
+                'direccion': negocio_dict.get('direccion'),
+                'telefono': negocio_dict.get('telefono_contacto'),
+                'email': negocio_dict.get('email'),
+                'nombre_responsable': negocio_dict.get('nombre_responsable'),
+                'activo': negocio_dict.get('activo', True),
+                'estado': 'activo' if negocio_dict.get('activo', True) else 'inactivo',
+                'permite_pago': negocio_dict.get('permite_pago', False),
+                'envia_recordatorios': negocio_dict.get('envia_recordatorios', False),
+                'con_confirmacion_cita': negocio_dict.get('con_confirmacion_cita', False),
+                'es_principal': negocio_dict.get('es_principal', False)
+            }
+
+            # Crear documento en Firestore con el ID de MariaDB
+            doc_ref = firestore_service.db.collection("negocios").document(str(negocio_id))
+            doc_ref.set(firestore_data)
+            logger.info(f"Negocio created in Firestore with ID: {negocio_id}")
+
+        except Exception as e:
+            logger.error(f"Error creating in Firestore: {e}")
+            # No fallar si Firestore falla, pero registrar el error
+            logger.warning(f"Negocio created only in MariaDB, Firestore sync failed")
+
+        # 3. Obtener el negocio creado para retornarlo
         negocio = ConsultorioService.get_consultorio_by_id(negocio_id)
 
         # Verificar si existe en Firestore
@@ -619,7 +649,7 @@ async def cambiar_estado_negocio(
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
     """
-    Cambiar el estado activo/inactivo de un negocio en MariaDB
+    Cambiar el estado activo/inactivo de un negocio en MariaDB Y Firestore
 
     Args:
         negocio_id: ID del negocio
@@ -629,9 +659,9 @@ async def cambiar_estado_negocio(
         Datos actualizados del negocio con indicador de existencia en Firestore
     """
     try:
-        logger.info(f"Changing estado for negocio {negocio_id} to {estado_data.activo}")
+        logger.info(f"Changing estado for negocio {negocio_id} to {estado_data.activo} in MariaDB and Firestore")
 
-        # Verificar que el negocio existe
+        # Verificar que el negocio existe en MariaDB
         negocio_existente = ConsultorioService.get_consultorio_by_id(negocio_id)
         if not negocio_existente:
             raise HTTPException(
@@ -639,7 +669,7 @@ async def cambiar_estado_negocio(
                 detail=f"Negocio con ID {negocio_id} no encontrado"
             )
 
-        # Cambiar estado en MariaDB
+        # 1. Cambiar estado en MariaDB
         success = ConsultorioService.cambiar_estado_consultorio(
             negocio_id,
             estado_data.activo
@@ -648,10 +678,34 @@ async def cambiar_estado_negocio(
         if not success:
             raise HTTPException(
                 status_code=500,
-                detail="Error al cambiar el estado del negocio"
+                detail="Error al cambiar el estado del negocio en MariaDB"
             )
 
-        # Obtener negocio actualizado
+        logger.info(f"Estado changed in MariaDB for negocio {negocio_id}")
+
+        # 2. Cambiar estado también en Firestore si existe
+        try:
+            # Verificar si existe en Firestore
+            doc_ref = firestore_service.db.collection("negocios").document(str(negocio_id))
+            doc = doc_ref.get()
+
+            if doc.exists:
+                # Actualizar estado en Firestore
+                firestore_update = {
+                    'activo': estado_data.activo,
+                    'estado': 'activo' if estado_data.activo else 'inactivo'
+                }
+                doc_ref.update(firestore_update)
+                logger.info(f"Estado changed in Firestore for negocio {negocio_id}")
+            else:
+                logger.warning(f"Negocio {negocio_id} not found in Firestore, skipping Firestore update")
+
+        except Exception as e:
+            logger.error(f"Error updating estado in Firestore: {e}")
+            # No fallar si Firestore falla, pero registrar el error
+            logger.warning(f"Estado changed only in MariaDB, Firestore sync failed")
+
+        # 3. Obtener negocio actualizado
         negocio_actualizado = ConsultorioService.get_consultorio_by_id(negocio_id)
 
         # Verificar si existe en Firestore
@@ -683,7 +737,7 @@ async def actualizar_negocio(
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
     """
-    Actualizar un negocio existente en MariaDB
+    Actualizar un negocio existente en MariaDB Y Firestore
 
     Args:
         negocio_id: ID del negocio a actualizar
@@ -693,9 +747,9 @@ async def actualizar_negocio(
         Datos actualizados del negocio con indicador de existencia en Firestore
     """
     try:
-        logger.info(f"Updating negocio in MariaDB: {negocio_id}")
+        logger.info(f"Updating negocio in MariaDB and Firestore: {negocio_id}")
 
-        # Verificar que el negocio existe
+        # Verificar que el negocio existe en MariaDB
         negocio_existente = ConsultorioService.get_consultorio_by_id(negocio_id)
         if not negocio_existente:
             raise HTTPException(
@@ -712,16 +766,65 @@ async def actualizar_negocio(
                 detail="No se proporcionaron campos para actualizar"
             )
 
-        # Actualizar negocio en MariaDB
+        # 1. Actualizar negocio en MariaDB
         success = ConsultorioService.update_consultorio(negocio_id, update_dict)
 
         if not success:
             raise HTTPException(
                 status_code=500,
-                detail="Error al actualizar el negocio"
+                detail="Error al actualizar el negocio en MariaDB"
             )
 
-        # Obtener negocio actualizado
+        logger.info(f"Negocio updated in MariaDB: {negocio_id}")
+
+        # 2. Actualizar también en Firestore si existe
+        try:
+            # Verificar si existe en Firestore
+            doc_ref = firestore_service.db.collection("negocios").document(str(negocio_id))
+            doc = doc_ref.get()
+
+            if doc.exists:
+                # Preparar datos para Firestore
+                firestore_update = {}
+
+                # Mapear campos
+                if 'nombre' in update_dict:
+                    firestore_update['nombre'] = update_dict['nombre']
+                if 'ruc' in update_dict:
+                    firestore_update['ruc'] = update_dict['ruc']
+                if 'direccion' in update_dict:
+                    firestore_update['direccion'] = update_dict['direccion']
+                if 'telefono_contacto' in update_dict:
+                    firestore_update['telefono'] = update_dict['telefono_contacto']
+                if 'email' in update_dict:
+                    firestore_update['email'] = update_dict['email']
+                if 'nombre_responsable' in update_dict:
+                    firestore_update['nombre_responsable'] = update_dict['nombre_responsable']
+                if 'activo' in update_dict:
+                    firestore_update['activo'] = update_dict['activo']
+                    firestore_update['estado'] = 'activo' if update_dict['activo'] else 'inactivo'
+                if 'permite_pago' in update_dict:
+                    firestore_update['permite_pago'] = update_dict['permite_pago']
+                if 'envia_recordatorios' in update_dict:
+                    firestore_update['envia_recordatorios'] = update_dict['envia_recordatorios']
+                if 'con_confirmacion_cita' in update_dict:
+                    firestore_update['con_confirmacion_cita'] = update_dict['con_confirmacion_cita']
+                if 'es_principal' in update_dict:
+                    firestore_update['es_principal'] = update_dict['es_principal']
+
+                # Actualizar en Firestore
+                if firestore_update:
+                    doc_ref.update(firestore_update)
+                    logger.info(f"Negocio updated in Firestore: {negocio_id}")
+            else:
+                logger.warning(f"Negocio {negocio_id} not found in Firestore, skipping Firestore update")
+
+        except Exception as e:
+            logger.error(f"Error updating in Firestore: {e}")
+            # No fallar si Firestore falla, pero registrar el error
+            logger.warning(f"Negocio updated only in MariaDB, Firestore sync failed")
+
+        # 3. Obtener negocio actualizado
         negocio_actualizado = ConsultorioService.get_consultorio_by_id(negocio_id)
 
         # Verificar si existe en Firestore
