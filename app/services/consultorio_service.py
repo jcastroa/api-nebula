@@ -398,3 +398,31 @@ class ConsultorioService:
         except Exception as e:
             logger.warning(f"Error verificando existencia en Firestore: {e}")
             return False
+
+    @staticmethod
+    def delete_consultorio(consultorio_id: int) -> bool:
+        """
+        Eliminar consultorio de MariaDB (usado para rollback)
+
+        Args:
+            consultorio_id: ID del consultorio a eliminar
+
+        Returns:
+            True si se eliminó correctamente
+        """
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+
+                # Eliminar consultorio
+                query = "DELETE FROM consultorios WHERE id = %s"
+                cursor.execute(query, (consultorio_id,))
+                conn.commit()
+                cursor.close()
+
+                logger.info(f"Consultorio {consultorio_id} deleted from MariaDB (rollback)")
+                return True
+
+        except Exception as e:
+            logger.error(f"Error deleting consultorio {consultorio_id}: {e}")
+            raise

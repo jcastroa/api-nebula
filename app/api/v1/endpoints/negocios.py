@@ -120,25 +120,37 @@ async def crear_negocio(
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
     """
-    Crear un nuevo negocio en MariaDB Y Firestore
+    Crear un nuevo negocio en MariaDB Y Firestore (TRANSACCIONAL)
 
     Args:
         negocio_data: Datos del negocio a crear
 
     Returns:
         ID del negocio creado y sus datos
+
+    Raises:
+        HTTPException: Si falla en MariaDB o Firestore (con rollback)
     """
+    negocio_id = None
+
     try:
-        logger.info(f"Creating negocio in MariaDB and Firestore: {negocio_data.nombre}")
+        logger.info(f"Creating negocio in MariaDB and Firestore (transactional): {negocio_data.nombre}")
 
         # Convertir schema a dict
         negocio_dict = negocio_data.dict()
 
         # 1. Crear negocio en MariaDB primero para obtener el ID
-        negocio_id = ConsultorioService.create_consultorio(negocio_dict)
-        logger.info(f"Negocio created in MariaDB with ID: {negocio_id}")
+        try:
+            negocio_id = ConsultorioService.create_consultorio(negocio_dict)
+            logger.info(f"✅ Negocio created in MariaDB with ID: {negocio_id}")
+        except Exception as e:
+            logger.error(f"❌ Error creating in MariaDB: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al crear negocio en MariaDB: {str(e)}"
+            )
 
-        # 2. Crear también en Firestore usando el mismo ID
+        # 2. Crear también en Firestore usando el mismo ID (OBLIGATORIO)
         try:
             # Preparar datos para Firestore
             firestore_data = {
@@ -160,32 +172,45 @@ async def crear_negocio(
             # Crear documento en Firestore con el ID de MariaDB
             doc_ref = firestore_service.db.collection("negocios").document(str(negocio_id))
             doc_ref.set(firestore_data)
-            logger.info(f"Negocio created in Firestore with ID: {negocio_id}")
+            logger.info(f"✅ Negocio created in Firestore with ID: {negocio_id}")
 
         except Exception as e:
-            logger.error(f"Error creating in Firestore: {e}")
-            # No fallar si Firestore falla, pero registrar el error
-            logger.warning(f"Negocio created only in MariaDB, Firestore sync failed")
+            # ROLLBACK: Eliminar de MariaDB si Firestore falla
+            logger.error(f"❌ Error creating in Firestore: {e}")
+            logger.warning(f"🔄 Rolling back: Deleting negocio {negocio_id} from MariaDB")
+
+            try:
+                ConsultorioService.delete_consultorio(negocio_id)
+                logger.info(f"✅ Rollback successful: Negocio {negocio_id} deleted from MariaDB")
+            except Exception as rollback_error:
+                logger.error(f"❌ CRITICAL: Rollback failed: {rollback_error}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error crítico: Creado en MariaDB (ID: {negocio_id}) pero falló Firestore y el rollback: {str(rollback_error)}"
+                )
+
+            # Lanzar error original
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al crear negocio en Firestore: {str(e)}. Operación revertida."
+            )
 
         # 3. Obtener el negocio creado para retornarlo
         negocio = ConsultorioService.get_consultorio_by_id(negocio_id)
-
-        # Verificar si existe en Firestore
-        negocio['existe_en_firestore'] = ConsultorioService.verificar_existe_en_firestore(
-            negocio_id,
-            firestore_service
-        )
+        negocio['existe_en_firestore'] = True  # Sabemos que existe porque pasó la creación
 
         return {
             "success": True,
             "id": negocio_id,
             "data": negocio,
-            "message": f"Negocio '{negocio_data.nombre}' creado exitosamente"
+            "message": f"Negocio '{negocio_data.nombre}' creado exitosamente en ambas bases de datos"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error creating negocio: {e}")
-        raise HTTPException(status_code=500, detail=f"Error al crear negocio: {str(e)}")
+        logger.error(f"❌ Unexpected error creating negocio: {e}")
+        raise HTTPException(status_code=500, detail=f"Error inesperado al crear negocio: {str(e)}")
 
 
 # ==========================================
@@ -649,7 +674,7 @@ async def cambiar_estado_negocio(
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
     """
-    Cambiar el estado activo/inactivo de un negocio en MariaDB Y Firestore
+    Cambiar el estado activo/inactivo de un negocio en MariaDB Y Firestore (TRANSACCIONAL)
 
     Args:
         negocio_id: ID del negocio
@@ -657,33 +682,41 @@ async def cambiar_estado_negocio(
 
     Returns:
         Datos actualizados del negocio con indicador de existencia en Firestore
+
+    Raises:
+        HTTPException: Si falla en MariaDB o Firestore (con rollback)
     """
     try:
-        logger.info(f"Changing estado for negocio {negocio_id} to {estado_data.activo} in MariaDB and Firestore")
+        logger.info(f"Changing estado for negocio {negocio_id} to {estado_data.activo} in MariaDB and Firestore (transactional)")
 
-        # Verificar que el negocio existe en MariaDB
-        negocio_existente = ConsultorioService.get_consultorio_by_id(negocio_id)
-        if not negocio_existente:
+        # Verificar que el negocio existe en MariaDB y guardar estado anterior
+        negocio_anterior = ConsultorioService.get_consultorio_by_id(negocio_id)
+        if not negocio_anterior:
             raise HTTPException(
                 status_code=404,
                 detail=f"Negocio con ID {negocio_id} no encontrado"
             )
 
-        # 1. Cambiar estado en MariaDB
-        success = ConsultorioService.cambiar_estado_consultorio(
-            negocio_id,
-            estado_data.activo
-        )
+        # Guardar estado anterior para rollback
+        estado_anterior = negocio_anterior.get('activo')
 
-        if not success:
+        # 1. Cambiar estado en MariaDB
+        try:
+            success = ConsultorioService.cambiar_estado_consultorio(
+                negocio_id,
+                estado_data.activo
+            )
+            if not success:
+                raise Exception("Estado update returned False")
+            logger.info(f"✅ Estado changed in MariaDB for negocio {negocio_id}")
+        except Exception as e:
+            logger.error(f"❌ Error changing estado in MariaDB: {e}")
             raise HTTPException(
                 status_code=500,
-                detail="Error al cambiar el estado del negocio en MariaDB"
+                detail=f"Error al cambiar el estado del negocio en MariaDB: {str(e)}"
             )
 
-        logger.info(f"Estado changed in MariaDB for negocio {negocio_id}")
-
-        # 2. Cambiar estado también en Firestore si existe
+        # 2. Cambiar estado también en Firestore (OBLIGATORIO si existe)
         try:
             # Verificar si existe en Firestore
             doc_ref = firestore_service.db.collection("negocios").document(str(negocio_id))
@@ -696,19 +729,35 @@ async def cambiar_estado_negocio(
                     'estado': 'activo' if estado_data.activo else 'inactivo'
                 }
                 doc_ref.update(firestore_update)
-                logger.info(f"Estado changed in Firestore for negocio {negocio_id}")
+                logger.info(f"✅ Estado changed in Firestore for negocio {negocio_id}")
             else:
-                logger.warning(f"Negocio {negocio_id} not found in Firestore, skipping Firestore update")
+                # Si no existe en Firestore, no es error crítico, solo advertencia
+                logger.warning(f"⚠️ Negocio {negocio_id} not found in Firestore, skipping Firestore update")
 
         except Exception as e:
-            logger.error(f"Error updating estado in Firestore: {e}")
-            # No fallar si Firestore falla, pero registrar el error
-            logger.warning(f"Estado changed only in MariaDB, Firestore sync failed")
+            # ROLLBACK: Revertir cambio de estado en MariaDB
+            logger.error(f"❌ Error updating estado in Firestore: {e}")
+            logger.warning(f"🔄 Rolling back: Reverting estado for negocio {negocio_id} in MariaDB")
+
+            try:
+                # Revertir a estado anterior
+                ConsultorioService.cambiar_estado_consultorio(negocio_id, estado_anterior)
+                logger.info(f"✅ Rollback successful: Estado reverted to {estado_anterior} for negocio {negocio_id}")
+            except Exception as rollback_error:
+                logger.error(f"❌ CRITICAL: Rollback failed: {rollback_error}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error crítico: Estado cambiado en MariaDB pero falló Firestore y el rollback: {str(rollback_error)}"
+                )
+
+            # Lanzar error original
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al cambiar estado en Firestore: {str(e)}. Operación revertida."
+            )
 
         # 3. Obtener negocio actualizado
         negocio_actualizado = ConsultorioService.get_consultorio_by_id(negocio_id)
-
-        # Verificar si existe en Firestore
         negocio_actualizado['existe_en_firestore'] = ConsultorioService.verificar_existe_en_firestore(
             negocio_id,
             firestore_service
@@ -719,14 +768,14 @@ async def cambiar_estado_negocio(
         return {
             "success": True,
             "data": negocio_actualizado,
-            "message": f"Negocio {estado_texto} exitosamente"
+            "message": f"Negocio {estado_texto} exitosamente en ambas bases de datos"
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error changing estado for negocio {negocio_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error al cambiar estado: {str(e)}")
+        logger.error(f"❌ Unexpected error changing estado for negocio {negocio_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error inesperado al cambiar estado: {str(e)}")
 
 
 @router.put("/{negocio_id}", response_model=Dict[str, Any])
@@ -737,7 +786,7 @@ async def actualizar_negocio(
     firestore_service: FirestoreService = Depends(get_firestore_service)
 ):
     """
-    Actualizar un negocio existente en MariaDB Y Firestore
+    Actualizar un negocio existente en MariaDB Y Firestore (TRANSACCIONAL)
 
     Args:
         negocio_id: ID del negocio a actualizar
@@ -745,13 +794,16 @@ async def actualizar_negocio(
 
     Returns:
         Datos actualizados del negocio con indicador de existencia en Firestore
+
+    Raises:
+        HTTPException: Si falla en MariaDB o Firestore (con rollback)
     """
     try:
-        logger.info(f"Updating negocio in MariaDB and Firestore: {negocio_id}")
+        logger.info(f"Updating negocio in MariaDB and Firestore (transactional): {negocio_id}")
 
-        # Verificar que el negocio existe en MariaDB
-        negocio_existente = ConsultorioService.get_consultorio_by_id(negocio_id)
-        if not negocio_existente:
+        # Verificar que el negocio existe en MariaDB y guardar estado anterior
+        negocio_anterior = ConsultorioService.get_consultorio_by_id(negocio_id)
+        if not negocio_anterior:
             raise HTTPException(
                 status_code=404,
                 detail=f"Negocio con ID {negocio_id} no encontrado"
@@ -767,17 +819,19 @@ async def actualizar_negocio(
             )
 
         # 1. Actualizar negocio en MariaDB
-        success = ConsultorioService.update_consultorio(negocio_id, update_dict)
-
-        if not success:
+        try:
+            success = ConsultorioService.update_consultorio(negocio_id, update_dict)
+            if not success:
+                raise Exception("Update returned False")
+            logger.info(f"✅ Negocio updated in MariaDB: {negocio_id}")
+        except Exception as e:
+            logger.error(f"❌ Error updating in MariaDB: {e}")
             raise HTTPException(
                 status_code=500,
-                detail="Error al actualizar el negocio en MariaDB"
+                detail=f"Error al actualizar el negocio en MariaDB: {str(e)}"
             )
 
-        logger.info(f"Negocio updated in MariaDB: {negocio_id}")
-
-        # 2. Actualizar también en Firestore si existe
+        # 2. Actualizar también en Firestore (OBLIGATORIO si existe)
         try:
             # Verificar si existe en Firestore
             doc_ref = firestore_service.db.collection("negocios").document(str(negocio_id))
@@ -815,19 +869,60 @@ async def actualizar_negocio(
                 # Actualizar en Firestore
                 if firestore_update:
                     doc_ref.update(firestore_update)
-                    logger.info(f"Negocio updated in Firestore: {negocio_id}")
+                    logger.info(f"✅ Negocio updated in Firestore: {negocio_id}")
             else:
-                logger.warning(f"Negocio {negocio_id} not found in Firestore, skipping Firestore update")
+                # Si no existe en Firestore, no es error crítico, solo advertencia
+                logger.warning(f"⚠️ Negocio {negocio_id} not found in Firestore, skipping Firestore update")
 
         except Exception as e:
-            logger.error(f"Error updating in Firestore: {e}")
-            # No fallar si Firestore falla, pero registrar el error
-            logger.warning(f"Negocio updated only in MariaDB, Firestore sync failed")
+            # ROLLBACK: Revertir cambios en MariaDB
+            logger.error(f"❌ Error updating in Firestore: {e}")
+            logger.warning(f"🔄 Rolling back: Reverting negocio {negocio_id} in MariaDB to previous state")
+
+            try:
+                # Preparar dict con valores anteriores para rollback
+                rollback_dict = {}
+                if 'nombre' in update_dict:
+                    rollback_dict['nombre'] = negocio_anterior.get('nombre')
+                if 'ruc' in update_dict:
+                    rollback_dict['ruc'] = negocio_anterior.get('ruc')
+                if 'direccion' in update_dict:
+                    rollback_dict['direccion'] = negocio_anterior.get('direccion')
+                if 'telefono_contacto' in update_dict:
+                    rollback_dict['telefono_contacto'] = negocio_anterior.get('telefono_contacto')
+                if 'email' in update_dict:
+                    rollback_dict['email'] = negocio_anterior.get('email')
+                if 'nombre_responsable' in update_dict:
+                    rollback_dict['nombre_responsable'] = negocio_anterior.get('nombre_responsable')
+                if 'activo' in update_dict:
+                    rollback_dict['activo'] = negocio_anterior.get('activo')
+                if 'permite_pago' in update_dict:
+                    rollback_dict['permite_pago'] = negocio_anterior.get('permite_pago')
+                if 'envia_recordatorios' in update_dict:
+                    rollback_dict['envia_recordatorios'] = negocio_anterior.get('envia_recordatorios')
+                if 'con_confirmacion_cita' in update_dict:
+                    rollback_dict['con_confirmacion_cita'] = negocio_anterior.get('con_confirmacion_cita')
+                if 'es_principal' in update_dict:
+                    rollback_dict['es_principal'] = negocio_anterior.get('es_principal')
+
+                # Revertir a estado anterior
+                ConsultorioService.update_consultorio(negocio_id, rollback_dict)
+                logger.info(f"✅ Rollback successful: Negocio {negocio_id} reverted to previous state in MariaDB")
+            except Exception as rollback_error:
+                logger.error(f"❌ CRITICAL: Rollback failed: {rollback_error}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error crítico: Actualizado en MariaDB pero falló Firestore y el rollback: {str(rollback_error)}"
+                )
+
+            # Lanzar error original
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al actualizar negocio en Firestore: {str(e)}. Operación revertida."
+            )
 
         # 3. Obtener negocio actualizado
         negocio_actualizado = ConsultorioService.get_consultorio_by_id(negocio_id)
-
-        # Verificar si existe en Firestore
         negocio_actualizado['existe_en_firestore'] = ConsultorioService.verificar_existe_en_firestore(
             negocio_id,
             firestore_service
@@ -836,14 +931,14 @@ async def actualizar_negocio(
         return {
             "success": True,
             "data": negocio_actualizado,
-            "message": f"Negocio actualizado exitosamente"
+            "message": f"Negocio actualizado exitosamente en ambas bases de datos"
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating negocio {negocio_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error al actualizar negocio: {str(e)}")
+        logger.error(f"❌ Unexpected error updating negocio {negocio_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error inesperado al actualizar negocio: {str(e)}")
 
 
 @router.get("/{negocio_id}", response_model=Dict[str, Any])
