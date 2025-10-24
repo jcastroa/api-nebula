@@ -358,13 +358,13 @@ class FirestoreService:
         try:
             # Intentar leer un documento pequeño
             test_doc = self.db.collection("_health").document("test").get()
-            
+
             return {
                 "status": "healthy",
                 "firestore_connected": True,
                 "timestamp": datetime.utcnow().isoformat()
             }
-            
+
         except Exception as e:
             logger.error(f"Firestore health check failed: {e}")
             return {
@@ -373,3 +373,192 @@ class FirestoreService:
                 "error": str(e),
                 "timestamp": datetime.utcnow().isoformat()
             }
+
+    # ==========================================
+    # OPERACIONES CRUD DE NEGOCIOS
+    # ==========================================
+
+    async def get_all_negocios(
+        self,
+        search_term: Optional[str] = None,
+        activo_only: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtener todos los negocios con búsqueda opcional
+
+        Args:
+            search_term: Término de búsqueda (nombre o RUC)
+            activo_only: Filtrar solo negocios activos
+
+        Returns:
+            Lista de negocios
+        """
+        try:
+            query = self.db.collection("negocios")
+
+            # Filtrar solo activos si se solicita
+            if activo_only:
+                query = query.where("activo", "==", True)
+
+            # Obtener documentos
+            docs = query.stream()
+
+            negocios = []
+            for doc in docs:
+                data = doc.to_dict()
+                data['id'] = doc.id
+
+                # Aplicar filtro de búsqueda si existe
+                if search_term:
+                    search_lower = search_term.lower()
+                    nombre = data.get('nombre', '').lower()
+                    ruc = data.get('ruc', '').lower()
+                    email = data.get('email', '').lower()
+
+                    # Buscar en nombre, RUC o email
+                    if (search_lower in nombre or
+                        search_lower in ruc or
+                        search_lower in email):
+                        negocios.append(data)
+                else:
+                    negocios.append(data)
+
+            # Ordenar por fecha de creación (más recientes primero)
+            negocios.sort(
+                key=lambda x: x.get('created_at', datetime.min),
+                reverse=True
+            )
+
+            logger.info(f"Retrieved {len(negocios)} negocios")
+            return negocios
+
+        except Exception as e:
+            logger.error(f"Error getting negocios: {e}")
+            raise
+
+    async def get_negocio_by_id(self, negocio_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Obtener negocio por ID
+
+        Args:
+            negocio_id: ID del negocio
+
+        Returns:
+            Datos del negocio o None si no existe
+        """
+        try:
+            doc_ref = self.db.collection("negocios").document(negocio_id)
+            doc = doc_ref.get()
+
+            if doc.exists:
+                data = doc.to_dict()
+                data['id'] = doc.id
+                return data
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting negocio {negocio_id}: {e}")
+            raise
+
+    async def create_negocio(self, negocio_data: Dict[str, Any]) -> str:
+        """
+        Crear nuevo negocio
+
+        Args:
+            negocio_data: Datos del negocio
+
+        Returns:
+            ID del documento creado
+        """
+        try:
+            # Agregar timestamps
+            negocio_data['created_at'] = firestore.SERVER_TIMESTAMP
+            negocio_data['updated_at'] = firestore.SERVER_TIMESTAMP
+
+            # Crear documento
+            doc_ref = self.db.collection("negocios").add(negocio_data)
+            doc_id = doc_ref[1].id
+
+            logger.info(f"Negocio created with ID: {doc_id}")
+            return doc_id
+
+        except Exception as e:
+            logger.error(f"Error creating negocio: {e}")
+            raise
+
+    async def update_negocio(
+        self,
+        negocio_id: str,
+        update_data: Dict[str, Any]
+    ) -> bool:
+        """
+        Actualizar negocio existente
+
+        Args:
+            negocio_id: ID del negocio
+            update_data: Datos a actualizar
+
+        Returns:
+            True si se actualizó correctamente
+        """
+        try:
+            # Verificar que el negocio existe
+            doc_ref = self.db.collection("negocios").document(negocio_id)
+            doc = doc_ref.get()
+
+            if not doc.exists:
+                logger.warning(f"Negocio {negocio_id} not found")
+                return False
+
+            # Agregar timestamp de actualización
+            update_data['updated_at'] = firestore.SERVER_TIMESTAMP
+
+            # Actualizar documento
+            doc_ref.update(update_data)
+
+            logger.info(f"Negocio {negocio_id} updated successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error updating negocio {negocio_id}: {e}")
+            raise
+
+    async def cambiar_estado_negocio(
+        self,
+        negocio_id: str,
+        activo: bool
+    ) -> bool:
+        """
+        Cambiar estado activo/inactivo de un negocio
+
+        Args:
+            negocio_id: ID del negocio
+            activo: Nuevo estado
+
+        Returns:
+            True si se actualizó correctamente
+        """
+        try:
+            # Verificar que el negocio existe
+            doc_ref = self.db.collection("negocios").document(negocio_id)
+            doc = doc_ref.get()
+
+            if not doc.exists:
+                logger.warning(f"Negocio {negocio_id} not found")
+                return False
+
+            # Actualizar solo el estado
+            update_data = {
+                'activo': activo,
+                'updated_at': firestore.SERVER_TIMESTAMP
+            }
+
+            doc_ref.update(update_data)
+
+            logger.info(f"Negocio {negocio_id} estado changed to {activo}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error changing estado for negocio {negocio_id}: {e}")
+            raise
