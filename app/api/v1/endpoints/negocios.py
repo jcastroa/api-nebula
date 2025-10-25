@@ -70,7 +70,7 @@ def get_date_range(date_filter: DateFilter):
 
 @router.get("/", response_model=NegocioListResponse)
 async def listar_negocios(
-    search: Optional[str] = Query(None, description="Término de búsqueda (nombre, RUC, email)"),
+    search: Optional[str] = Query(None, min_length=0, description="Término de búsqueda (nombre, RUC, email)"),
     activo_only: bool = Query(False, description="Filtrar solo negocios activos"),
     current_user: dict = Depends(get_current_user),
     firestore_service: FirestoreService = Depends(get_firestore_service)
@@ -79,7 +79,7 @@ async def listar_negocios(
     Listar todos los negocios con búsqueda opcional desde MariaDB
 
     Args:
-        search: Término de búsqueda para filtrar por nombre, RUC o email
+        search: Término de búsqueda para filtrar por nombre, RUC o email (opcional)
         activo_only: Si es True, solo retorna negocios activos
 
     Returns:
