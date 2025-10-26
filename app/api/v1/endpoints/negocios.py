@@ -1,22 +1,31 @@
 # app/api/v1/endpoints/negocios_smart.py
 """
 Endpoints mejorados para gestión de citas con priorización inteligente
+y CRUD de negocios
 """
 from enum import Enum
 import math
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, Path
 from typing import Optional, Dict, Any, List
 import logging
 import json
 from datetime import datetime, date, timedelta
 
 from app.services.firestore_service import FirestoreService
+from app.services.consultorio_service import ConsultorioService
 from app.websocket.websocket_manager import websocket_manager
 from app.dependencies import get_current_user
 from app.core.redis_client import redis_client
 from app.config import settings
 from app.core.security import (
     create_access_token,
+)
+from app.schemas.negocio import (
+    NegocioCreate,
+    NegocioUpdate,
+    NegocioEstadoUpdate,
+    NegocioResponse,
+    NegocioListResponse
 )
 
 logger = logging.getLogger(__name__)
@@ -36,7 +45,7 @@ def get_date_range(date_filter: DateFilter):
     Retorna el rango de fechas según el filtro seleccionado
     """
     today = datetime.now()
-    
+
     if date_filter == DateFilter.TODAY:
         start_date = today
         end_date = today
@@ -50,8 +59,164 @@ def get_date_range(date_filter: DateFilter):
     else:  # ALL
         start_date = today - timedelta(days=30)  # Últimos 30 días
         end_date = today + timedelta(days=30)   # Próximos 30 días
-    
+
     return start_date, end_date
+
+
+# ==========================================
+# ENDPOINTS CRUD PARA GESTIÓN DE NEGOCIOS
+# Estos deben ir PRIMERO para evitar conflictos
+# ==========================================
+
+@router.get("/", response_model=NegocioListResponse)
+async def listar_negocios(
+    search: Optional[str] = Query(None, min_length=0, description="Término de búsqueda (nombre, RUC, email)"),
+    activo_only: bool = Query(False, description="Filtrar solo negocios activos"),
+    current_user: dict = Depends(get_current_user),
+    firestore_service: FirestoreService = Depends(get_firestore_service)
+):
+    """
+    Listar todos los negocios con búsqueda opcional desde MariaDB
+
+    Args:
+        search: Término de búsqueda para filtrar por nombre, RUC o email (opcional)
+        activo_only: Si es True, solo retorna negocios activos
+
+    Returns:
+        Lista de negocios con sus datos completos e indicador de existencia en Firestore
+    """
+    try:
+        logger.info(f"Listing negocios from MariaDB - search: {search}, activo_only: {activo_only}")
+
+        # Obtener negocios de MariaDB
+        consultorios = ConsultorioService.get_all_consultorios(
+            search_term=search,
+            activo_only=activo_only
+        )
+
+        # Agregar indicador de existencia en Firestore
+        for consultorio in consultorios:
+            consultorio['existe_en_firestore'] = ConsultorioService.verificar_existe_en_firestore(
+                consultorio['id'],
+                firestore_service
+            )
+
+        return {
+            "success": True,
+            "total": len(consultorios),
+            "data": consultorios,
+            "message": f"Se encontraron {len(consultorios)} negocios"
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing negocios: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al listar negocios: {str(e)}")
+
+
+@router.post("/", response_model=Dict[str, Any])
+async def crear_negocio(
+    negocio_data: NegocioCreate,
+    current_user: dict = Depends(get_current_user),
+    firestore_service: FirestoreService = Depends(get_firestore_service)
+):
+    """
+    Crear un nuevo negocio en MariaDB Y Firestore (TRANSACCIONAL)
+
+    Args:
+        negocio_data: Datos del negocio a crear
+
+    Returns:
+        ID del negocio creado y sus datos
+
+    Raises:
+        HTTPException: Si falla en MariaDB o Firestore (con rollback)
+    """
+    negocio_id = None
+
+    try:
+        logger.info(f"Creating negocio in MariaDB and Firestore (transactional): {negocio_data.nombre}")
+
+        # Convertir schema a dict
+        negocio_dict = negocio_data.dict()
+
+        # 1. Crear negocio en MariaDB primero para obtener el ID
+        try:
+            negocio_id = ConsultorioService.create_consultorio(negocio_dict)
+            logger.info(f"✅ Negocio created in MariaDB with ID: {negocio_id}")
+        except Exception as e:
+            logger.error(f"❌ Error creating in MariaDB: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al crear negocio en MariaDB: {str(e)}"
+            )
+
+        # 2. Crear también en Firestore usando el mismo ID (OBLIGATORIO)
+        try:
+            # Preparar datos para Firestore
+            firestore_data = {
+                'id': negocio_id,
+                'nombre': negocio_dict.get('nombre'),
+                'ruc': negocio_dict.get('ruc'),
+                'direccion': negocio_dict.get('direccion'),
+                'telefono': negocio_dict.get('telefono_contacto'),
+                'email': negocio_dict.get('email'),
+                'nombre_responsable': negocio_dict.get('nombre_responsable'),
+                'activo': negocio_dict.get('activo', True),
+                'estado': 'activo' if negocio_dict.get('activo', True) else 'inactivo',
+                'permite_pago': negocio_dict.get('permite_pago', False),
+                'envia_recordatorios': negocio_dict.get('envia_recordatorios', False),
+                'con_confirmacion_cita': negocio_dict.get('con_confirmacion_cita', False),
+                'es_principal': negocio_dict.get('es_principal', False)
+            }
+
+            # Crear documento en Firestore con el ID de MariaDB
+            doc_ref = firestore_service.db.collection("negocios").document(str(negocio_id))
+            doc_ref.set(firestore_data)
+            logger.info(f"✅ Negocio created in Firestore with ID: {negocio_id}")
+
+        except Exception as e:
+            # ROLLBACK: Eliminar de MariaDB si Firestore falla
+            logger.error(f"❌ Error creating in Firestore: {e}")
+            logger.warning(f"🔄 Rolling back: Deleting negocio {negocio_id} from MariaDB")
+
+            try:
+                ConsultorioService.delete_consultorio(negocio_id)
+                logger.info(f"✅ Rollback successful: Negocio {negocio_id} deleted from MariaDB")
+            except Exception as rollback_error:
+                logger.error(f"❌ CRITICAL: Rollback failed: {rollback_error}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error crítico: Creado en MariaDB (ID: {negocio_id}) pero falló Firestore y el rollback: {str(rollback_error)}"
+                )
+
+            # Lanzar error original
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al crear negocio en Firestore: {str(e)}. Operación revertida."
+            )
+
+        # 3. Obtener el negocio creado para retornarlo
+        negocio = ConsultorioService.get_consultorio_by_id(negocio_id)
+        negocio['existe_en_firestore'] = True  # Sabemos que existe porque pasó la creación
+
+        return {
+            "success": True,
+            "id": negocio_id,
+            "data": negocio,
+            "message": f"Negocio '{negocio_data.nombre}' creado exitosamente en ambas bases de datos"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected error creating negocio: {e}")
+        raise HTTPException(status_code=500, detail=f"Error inesperado al crear negocio: {str(e)}")
+
+
+# ==========================================
+# ENDPOINTS DE CITAS PRIORIZADAS
+# Estos tienen paths específicos y deben ir antes de los endpoints genéricos /{negocio_id}
+# ==========================================
 
 @router.get("/{codigo_negocio}/citas-priorizadas")
 async def get_citas_priorizadas(
@@ -67,7 +232,7 @@ async def get_citas_priorizadas(
 ):
     """
     Obtener citas del día con priorización calculada y paginación
-    
+
     Returns:
         - Lista de citas ordenadas por prioridad (paginada)
         - Información de prioridad para cada cita
@@ -76,22 +241,22 @@ async def get_citas_priorizadas(
     """
     try:
         logger.info(f"Getting prioritized appointments for negocio {codigo_negocio}, page {page}")
-        
+
         # 1. Verificar cache de citas críticas primero
         cached_critical = redis_client.get_json(f"appointments:critical:{codigo_negocio}")
-        
+
         # 2. Obtener citas del día desde Firestore
         #today = datetime.today().strftime("%d/%m/%Y")  # "23/09/2025"
         # 2. Obtener rango de fechas según el filtro
         start_date, end_date = get_date_range(date_filter)
-        
+
         # Query para citas de hoy
         # query = firestore_service.db.collection("citas") \
         #     .where("codigo_negocio", "==", codigo_negocio) \
         #     .where("fecha", "==", today)
         query = firestore_service.db.collection("citas") \
             .where("codigo_negocio", "==", codigo_negocio)
-        
+
         # 4. Aplicar filtros de fecha
         # 4. Para filtros específicos, aplicar filtro en Firestore (más eficiente)
         if date_filter == DateFilter.TODAY:
@@ -101,14 +266,14 @@ async def get_citas_priorizadas(
             tomorrow_str = start_date.strftime("%d/%m/%Y")
             query = query.where("fecha", "==", tomorrow_str)
         # Para WEEK y ALL se filtrará después del procesamiento
-        
+
         if not include_past:
             query = query.where("estado", "in", ["pendiente", "confirmada"])
-        
+
         # Ejecutar query
         docs = query.stream()
         appointments = []
-        
+
         for doc in docs:
             data = doc.to_dict()
             data['id'] = doc.id
@@ -117,7 +282,7 @@ async def get_citas_priorizadas(
         # 4. Calcular prioridad para cada cita
         now = datetime.now()
         prioritized_appointments = []
-        
+
         for appointment in appointments:
             try:
                 # Parsear hora de la cita
@@ -128,47 +293,47 @@ async def get_citas_priorizadas(
                     if start_date and end_date:
                         if not (start_date.date() <= fecha_cita.date() <= end_date.date()):
                             continue
-                
+
                 # Aplicar filtro de búsqueda
                 if search:
                     search_lower = search.lower()
                     cliente_nombre = appointment.get('nombre', '').lower()
                     telefono = appointment.get('telefono', '').lower()
-                    
+
                     if search_lower not in cliente_nombre and search_lower not in telefono:
                         continue
 
                 hora_cita = appointment.get('hora', '00:00')
                 hora_parts = hora_cita.split(':')
-                
+
                 cita_datetime = fecha_cita.replace(
                     hour=int(hora_parts[0]),
                     minute=int(hora_parts[1]) if len(hora_parts) > 1 else 0
                 )
-                
+
                 # Calcular tiempo hasta la cita
                 time_diff = cita_datetime - now
                 minutes_until = time_diff.total_seconds() / 60
-                
+
                 # Calcular prioridad
                 priority = calculate_priority(minutes_until)
-                
+
                 appointment['priority'] = priority
                 appointment['minutes_until'] = round(minutes_until, 1)
                 appointment['appointment_datetime'] = cita_datetime.isoformat()
                 appointment['pago_status'] = get_pago_status(appointment)
-                
+
                 # Filtrar por prioridad mínima si se especifica
                 if min_priority:
                     priority_levels = ['NORMAL', 'MEDIUM', 'HIGH', 'CRITICAL']
                     min_index = priority_levels.index(min_priority)
                     current_index = priority_levels.index(priority['level'])
-                    
+
                     if current_index >= min_index:
                         prioritized_appointments.append(appointment)
                 else:
                     prioritized_appointments.append(appointment)
-                    
+
             except Exception as e:
                 logger.error(f"Error processing appointment {appointment.get('id')}: {e}")
                 appointment['priority'] = {
@@ -177,32 +342,32 @@ async def get_citas_priorizadas(
                     'reason': 'Error en cálculo'
                 }
                 prioritized_appointments.append(appointment)
-        
+
         # 5. Ordenar por score de prioridad (mayor a menor)
         prioritized_appointments.sort(
             key=lambda x: x['priority']['score'],
             reverse=True
         )
-        
+
         # 6. Aplicar paginación
         total_items = len(prioritized_appointments)
         total_pages = math.ceil(total_items / items_per_page) if total_items > 0 else 1
-        
+
         # Calcular índices para la paginación
         start_index = (page - 1) * items_per_page
         end_index = start_index + items_per_page
-        
+
         # Obtener items de la página actual
         paginated_appointments = prioritized_appointments[start_index:end_index]
-        
+
         # 7. Calcular estadísticas (sobre todos los datos, no solo la página actual)
         stats = {
             'total': total_items,
-            'urgentes': len([a for a in prioritized_appointments 
+            'urgentes': len([a for a in prioritized_appointments
                            if a['priority']['level'] == 'CRITICAL']),
-            'proximas': len([a for a in prioritized_appointments 
+            'proximas': len([a for a in prioritized_appointments
                            if a['priority']['level'] == 'HIGH']),
-            'por_confirmar': len([a for a in prioritized_appointments 
+            'por_confirmar': len([a for a in prioritized_appointments
                                 if a['estado'] == 'pendiente']),
             'sin_pago': len([
                 a for a in prioritized_appointments
@@ -210,10 +375,10 @@ async def get_citas_priorizadas(
                 or not a['pago'].get('realizado', False)  # no se realizó
                 or not a['pago'].get('validado', False)   # realizado pero no validado
             ]),
-            'concluidas': len([a for a in prioritized_appointments 
+            'concluidas': len([a for a in prioritized_appointments
                             if a['estado'] == 'completada'])
         }
-        
+
         # 8. Guardar en cache para acceso rápido
         if stats['urgentes'] > 0:
             redis_client.set_json(
@@ -237,7 +402,7 @@ async def get_citas_priorizadas(
             },
             "message": f"Retrieved {len(paginated_appointments)} prioritized appointments (page {page} of {total_pages})"
         }
-        
+
     except Exception as e:
         logger.error(f"Error getting prioritized appointments: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -253,7 +418,7 @@ async def smart_refresh(
 ):
     """
     Refresh inteligente que respeta el contexto del usuario
-    
+
     - No actualiza registros siendo editados
     - Mantiene filtros activos
     - Retorna solo cambios desde last_update
@@ -261,7 +426,7 @@ async def smart_refresh(
     """
     try:
         logger.info(f"Smart refresh for negocio {codigo_negocio}, editing: {editing_ids}")
-        
+
         # 1. Obtener citas priorizadas
         result = await get_citas_priorizadas(
             codigo_negocio=codigo_negocio,
@@ -269,20 +434,20 @@ async def smart_refresh(
             current_user=current_user,
             firestore_service=firestore_service
         )
-        
+
         appointments = result['data']['appointments']
-        
+
         # 2. Excluir citas siendo editadas
         if editing_ids:
             appointments_to_update = [
-                app for app in appointments 
+                app for app in appointments
                 if app['id'] not in editing_ids
             ]
             excluded_count = len(appointments) - len(appointments_to_update)
         else:
             appointments_to_update = appointments
             excluded_count = 0
-        
+
         # 3. Detectar cambios desde last_update
         changes = {
             'new': [],
@@ -290,30 +455,30 @@ async def smart_refresh(
             'priority_changed': [],
             'total_changes': 0
         }
-        
+
         if last_update:
             try:
                 last_update_dt = datetime.fromisoformat(last_update)
-                
+
                 for app in appointments_to_update:
                     # Verificar si es nuevo o actualizado
                     updated_at = app.get('updated_at')
                     created_at = app.get('created_at')
-                    
+
                     if created_at and datetime.fromisoformat(created_at) > last_update_dt:
                         changes['new'].append(app['id'])
                     elif updated_at and datetime.fromisoformat(updated_at) > last_update_dt:
                         changes['updated'].append(app['id'])
-                    
+
                     # Verificar cambios de prioridad (basado en minutes_until)
                     if app['priority']['level'] in ['CRITICAL', 'HIGH']:
                         changes['priority_changed'].append(app['id'])
-                
+
                 changes['total_changes'] = len(changes['new']) + len(changes['updated'])
-                
+
             except Exception as e:
                 logger.warning(f"Error parsing last_update: {e}")
-        
+
         # 4. Aplicar filtros si existen
         if active_filters:
             try:
@@ -332,7 +497,7 @@ async def smart_refresh(
                     ]
             except Exception as e:
                 logger.warning(f"Error parsing filters: {e}")
-        
+
         # 5. Preparar respuesta inteligente
         response = {
             "success": True,
@@ -347,9 +512,9 @@ async def smart_refresh(
             },
             "action_suggested": determine_action(changes, result['data']['stats'])
         }
-        
+
         return response
-        
+
     except Exception as e:
         logger.error(f"Error in smart refresh: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -367,33 +532,33 @@ async def smart_websocket_endpoint(
         # Verificar autenticación
         from app.core.security import verify_token
         from app.dependencies import get_user_crud
-        
+
         try:
             payload = verify_token(token)
             user_crud = get_user_crud()
             user = await user_crud.get(payload['user_id'])
-            
+
             if not user:
                 await websocket.close(code=4001, reason="Invalid user")
                 return
-                
+
         except Exception as e:
             logger.warning(f"WebSocket auth failed: {e}")
             await websocket.close(code=4001, reason="Authentication failed")
             return
-        
+
         user_id = user['id']
         user_info = {
             "username": user.get('username'),
             "email": user.get('email'),
             "connected_at": datetime.now().isoformat()
         }
-        
+
         # Conectar al WebSocket manager
         await websocket_manager.connect(websocket, user_id, codigo_negocio, user_info)
-        
+
         logger.info(f"🔌 Smart WebSocket connected: user {user_id} to negocio {codigo_negocio}")
-        
+
         # Enviar estado inicial
         await websocket.send_json({
             "type": "connection_established",
@@ -406,54 +571,54 @@ async def smart_websocket_endpoint(
             },
             "timestamp": datetime.now().isoformat()
         })
-        
+
         try:
             while True:
                 # Recibir mensajes del cliente
                 data = await websocket.receive_text()
-                
+
                 try:
                     message = json.loads(data)
-                    
+
                     # Manejar diferentes tipos de mensajes
                     if message.get('type') == 'editing_start':
                         # Cliente informa que comenzó a editar
                         appointment_id = message.get('appointment_id')
                         logger.debug(f"User {user_id} started editing {appointment_id}")
-                        
+
                     elif message.get('type') == 'editing_end':
                         # Cliente terminó de editar
                         appointment_id = message.get('appointment_id')
                         logger.debug(f"User {user_id} finished editing {appointment_id}")
-                        
+
                     elif message.get('type') == 'request_critical':
                         # Cliente solicita solo citas críticas
                         cached_critical = redis_client.get_json(
                             f"appointments:critical:{codigo_negocio}"
                         )
-                        
+
                         await websocket.send_json({
                             "type": "critical_appointments",
                             "data": cached_critical or [],
                             "timestamp": datetime.now().isoformat()
                         })
-                    
+
                     elif message.get('type') == 'pong':
                         # Respuesta a ping
                         pass
-                        
+
                 except json.JSONDecodeError:
                     logger.warning(f"Invalid JSON from user {user_id}: {data}")
-                
+
         except WebSocketDisconnect:
             logger.info(f"🔌 Smart WebSocket disconnected: user {user_id}")
-        
+
         except Exception as e:
             logger.error(f"WebSocket error for user {user_id}: {e}")
-        
+
         finally:
             await websocket_manager.disconnect(user_id, codigo_negocio)
-    
+
     except Exception as e:
         logger.error(f"WebSocket setup error: {e}")
         try:
@@ -477,9 +642,9 @@ async def get_websocket_token(
         "type": "websocket",
         "exp": datetime.utcnow() + timedelta(hours=24)  # 24 horas
     }
-    
+
     ws_token = create_access_token(ws_token_data)
-    
+
     # Guardar en Redis para validación
     redis_client.set_json(
         f"ws_token:{current_user['id']}:{codigo_negocio}",
@@ -489,17 +654,346 @@ async def get_websocket_token(
         },
         ttl=86400  # 24 horas
     )
-    
+
     return {
         "ws_token": ws_token,
         "expires_in": 86400
     }
 
-# Funciones auxiliares
+
+# ==========================================
+# ENDPOINTS DE ACTUALIZACIÓN Y CONSULTA DE NEGOCIOS INDIVIDUALES
+# Estos deben ir AL FINAL porque son más genéricos
+# ==========================================
+
+@router.patch("/{negocio_id}/estado", response_model=Dict[str, Any])
+async def cambiar_estado_negocio(
+    estado_data: NegocioEstadoUpdate,
+    negocio_id: int = Path(..., gt=0, description="ID numérico del negocio"),
+    current_user: dict = Depends(get_current_user),
+    firestore_service: FirestoreService = Depends(get_firestore_service)
+):
+    """
+    Cambiar el estado activo/inactivo de un negocio en MariaDB Y Firestore (TRANSACCIONAL)
+
+    Args:
+        negocio_id: ID del negocio
+        estado_data: Nuevo estado (activo: true/false)
+
+    Returns:
+        Datos actualizados del negocio con indicador de existencia en Firestore
+
+    Raises:
+        HTTPException: Si falla en MariaDB o Firestore (con rollback)
+    """
+    try:
+        logger.info(f"Changing estado for negocio {negocio_id} to {estado_data.activo} in MariaDB and Firestore (transactional)")
+
+        # Verificar que el negocio existe en MariaDB y guardar estado anterior
+        negocio_anterior = ConsultorioService.get_consultorio_by_id(negocio_id)
+        if not negocio_anterior:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Negocio con ID {negocio_id} no encontrado"
+            )
+
+        # Guardar estado anterior para rollback
+        estado_anterior = negocio_anterior.get('activo')
+
+        # 1. Cambiar estado en MariaDB
+        try:
+            success = ConsultorioService.cambiar_estado_consultorio(
+                negocio_id,
+                estado_data.activo
+            )
+            if not success:
+                raise Exception("Estado update returned False")
+            logger.info(f"✅ Estado changed in MariaDB for negocio {negocio_id}")
+        except Exception as e:
+            logger.error(f"❌ Error changing estado in MariaDB: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al cambiar el estado del negocio en MariaDB: {str(e)}"
+            )
+
+        # 2. Cambiar estado también en Firestore (OBLIGATORIO si existe)
+        try:
+            # Verificar si existe en Firestore
+            doc_ref = firestore_service.db.collection("negocios").document(str(negocio_id))
+            doc = doc_ref.get()
+
+            if doc.exists:
+                # Actualizar estado en Firestore
+                firestore_update = {
+                    'activo': estado_data.activo,
+                    'estado': 'activo' if estado_data.activo else 'inactivo'
+                }
+                doc_ref.update(firestore_update)
+                logger.info(f"✅ Estado changed in Firestore for negocio {negocio_id}")
+            else:
+                # Si no existe en Firestore, no es error crítico, solo advertencia
+                logger.warning(f"⚠️ Negocio {negocio_id} not found in Firestore, skipping Firestore update")
+
+        except Exception as e:
+            # ROLLBACK: Revertir cambio de estado en MariaDB
+            logger.error(f"❌ Error updating estado in Firestore: {e}")
+            logger.warning(f"🔄 Rolling back: Reverting estado for negocio {negocio_id} in MariaDB")
+
+            try:
+                # Revertir a estado anterior
+                ConsultorioService.cambiar_estado_consultorio(negocio_id, estado_anterior)
+                logger.info(f"✅ Rollback successful: Estado reverted to {estado_anterior} for negocio {negocio_id}")
+            except Exception as rollback_error:
+                logger.error(f"❌ CRITICAL: Rollback failed: {rollback_error}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error crítico: Estado cambiado en MariaDB pero falló Firestore y el rollback: {str(rollback_error)}"
+                )
+
+            # Lanzar error original
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al cambiar estado en Firestore: {str(e)}. Operación revertida."
+            )
+
+        # 3. Obtener negocio actualizado
+        negocio_actualizado = ConsultorioService.get_consultorio_by_id(negocio_id)
+        negocio_actualizado['existe_en_firestore'] = ConsultorioService.verificar_existe_en_firestore(
+            negocio_id,
+            firestore_service
+        )
+
+        estado_texto = "activado" if estado_data.activo else "desactivado"
+
+        return {
+            "success": True,
+            "data": negocio_actualizado,
+            "message": f"Negocio {estado_texto} exitosamente en ambas bases de datos"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected error changing estado for negocio {negocio_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error inesperado al cambiar estado: {str(e)}")
+
+
+@router.put("/{negocio_id}", response_model=Dict[str, Any])
+async def actualizar_negocio(
+    negocio_data: NegocioUpdate,
+    negocio_id: int = Path(..., gt=0, description="ID numérico del negocio"),
+    current_user: dict = Depends(get_current_user),
+    firestore_service: FirestoreService = Depends(get_firestore_service)
+):
+    """
+    Actualizar un negocio existente en MariaDB Y Firestore (TRANSACCIONAL)
+
+    Args:
+        negocio_id: ID del negocio a actualizar
+        negocio_data: Datos a actualizar (solo los campos proporcionados)
+
+    Returns:
+        Datos actualizados del negocio con indicador de existencia en Firestore
+
+    Raises:
+        HTTPException: Si falla en MariaDB o Firestore (con rollback)
+    """
+    try:
+        logger.info(f"Updating negocio in MariaDB and Firestore (transactional): {negocio_id}")
+
+        # Verificar que el negocio existe en MariaDB y guardar estado anterior
+        negocio_anterior = ConsultorioService.get_consultorio_by_id(negocio_id)
+        if not negocio_anterior:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Negocio con ID {negocio_id} no encontrado"
+            )
+
+        # Convertir a dict y remover campos None (solo actualizar campos proporcionados)
+        update_dict = negocio_data.dict(exclude_unset=True)
+
+        if not update_dict:
+            raise HTTPException(
+                status_code=400,
+                detail="No se proporcionaron campos para actualizar"
+            )
+
+        # 1. Actualizar negocio en MariaDB
+        try:
+            success = ConsultorioService.update_consultorio(negocio_id, update_dict)
+            if not success:
+                raise Exception("Update returned False")
+            logger.info(f"✅ Negocio updated in MariaDB: {negocio_id}")
+        except Exception as e:
+            logger.error(f"❌ Error updating in MariaDB: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al actualizar el negocio en MariaDB: {str(e)}"
+            )
+
+        # 2. Actualizar también en Firestore (OBLIGATORIO si existe)
+        try:
+            # Verificar si existe en Firestore
+            doc_ref = firestore_service.db.collection("negocios").document(str(negocio_id))
+            doc = doc_ref.get()
+
+            if doc.exists:
+                # Preparar datos para Firestore
+                firestore_update = {}
+
+                # Mapear campos
+                if 'nombre' in update_dict:
+                    firestore_update['nombre'] = update_dict['nombre']
+                if 'ruc' in update_dict:
+                    firestore_update['ruc'] = update_dict['ruc']
+                if 'direccion' in update_dict:
+                    firestore_update['direccion'] = update_dict['direccion']
+                if 'telefono_contacto' in update_dict:
+                    firestore_update['telefono'] = update_dict['telefono_contacto']
+                if 'email' in update_dict:
+                    firestore_update['email'] = update_dict['email']
+                if 'nombre_responsable' in update_dict:
+                    firestore_update['nombre_responsable'] = update_dict['nombre_responsable']
+                if 'activo' in update_dict:
+                    firestore_update['activo'] = update_dict['activo']
+                    firestore_update['estado'] = 'activo' if update_dict['activo'] else 'inactivo'
+                if 'permite_pago' in update_dict:
+                    firestore_update['permite_pago'] = update_dict['permite_pago']
+                if 'envia_recordatorios' in update_dict:
+                    firestore_update['envia_recordatorios'] = update_dict['envia_recordatorios']
+                if 'con_confirmacion_cita' in update_dict:
+                    firestore_update['con_confirmacion_cita'] = update_dict['con_confirmacion_cita']
+                if 'es_principal' in update_dict:
+                    firestore_update['es_principal'] = update_dict['es_principal']
+
+                # Actualizar en Firestore
+                if firestore_update:
+                    doc_ref.update(firestore_update)
+                    logger.info(f"✅ Negocio updated in Firestore: {negocio_id}")
+            else:
+                # Si no existe en Firestore, no es error crítico, solo advertencia
+                logger.warning(f"⚠️ Negocio {negocio_id} not found in Firestore, skipping Firestore update")
+
+        except Exception as e:
+            # ROLLBACK: Revertir cambios en MariaDB
+            logger.error(f"❌ Error updating in Firestore: {e}")
+            logger.warning(f"🔄 Rolling back: Reverting negocio {negocio_id} in MariaDB to previous state")
+
+            try:
+                # Preparar dict con valores anteriores para rollback
+                rollback_dict = {}
+                if 'nombre' in update_dict:
+                    rollback_dict['nombre'] = negocio_anterior.get('nombre')
+                if 'ruc' in update_dict:
+                    rollback_dict['ruc'] = negocio_anterior.get('ruc')
+                if 'direccion' in update_dict:
+                    rollback_dict['direccion'] = negocio_anterior.get('direccion')
+                if 'telefono_contacto' in update_dict:
+                    rollback_dict['telefono_contacto'] = negocio_anterior.get('telefono_contacto')
+                if 'email' in update_dict:
+                    rollback_dict['email'] = negocio_anterior.get('email')
+                if 'nombre_responsable' in update_dict:
+                    rollback_dict['nombre_responsable'] = negocio_anterior.get('nombre_responsable')
+                if 'activo' in update_dict:
+                    rollback_dict['activo'] = negocio_anterior.get('activo')
+                if 'permite_pago' in update_dict:
+                    rollback_dict['permite_pago'] = negocio_anterior.get('permite_pago')
+                if 'envia_recordatorios' in update_dict:
+                    rollback_dict['envia_recordatorios'] = negocio_anterior.get('envia_recordatorios')
+                if 'con_confirmacion_cita' in update_dict:
+                    rollback_dict['con_confirmacion_cita'] = negocio_anterior.get('con_confirmacion_cita')
+                if 'es_principal' in update_dict:
+                    rollback_dict['es_principal'] = negocio_anterior.get('es_principal')
+
+                # Revertir a estado anterior
+                ConsultorioService.update_consultorio(negocio_id, rollback_dict)
+                logger.info(f"✅ Rollback successful: Negocio {negocio_id} reverted to previous state in MariaDB")
+            except Exception as rollback_error:
+                logger.error(f"❌ CRITICAL: Rollback failed: {rollback_error}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error crítico: Actualizado en MariaDB pero falló Firestore y el rollback: {str(rollback_error)}"
+                )
+
+            # Lanzar error original
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al actualizar negocio en Firestore: {str(e)}. Operación revertida."
+            )
+
+        # 3. Obtener negocio actualizado
+        negocio_actualizado = ConsultorioService.get_consultorio_by_id(negocio_id)
+        negocio_actualizado['existe_en_firestore'] = ConsultorioService.verificar_existe_en_firestore(
+            negocio_id,
+            firestore_service
+        )
+
+        return {
+            "success": True,
+            "data": negocio_actualizado,
+            "message": f"Negocio actualizado exitosamente en ambas bases de datos"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected error updating negocio {negocio_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error inesperado al actualizar negocio: {str(e)}")
+
+
+@router.get("/{negocio_id}", response_model=Dict[str, Any])
+async def obtener_negocio(
+    negocio_id: int = Path(..., gt=0, description="ID numérico del negocio"),
+    current_user: dict = Depends(get_current_user),
+    firestore_service: FirestoreService = Depends(get_firestore_service)
+):
+    """
+    Obtener un negocio específico por ID desde MariaDB
+
+    Args:
+        negocio_id: ID numérico del negocio (debe ser mayor a 0)
+
+    Returns:
+        Datos completos del negocio con indicador de existencia en Firestore
+    """
+    try:
+        logger.info(f"Getting negocio from MariaDB: {negocio_id}")
+
+        # Obtener negocio de MariaDB
+        negocio = ConsultorioService.get_consultorio_by_id(negocio_id)
+
+        if not negocio:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Negocio con ID {negocio_id} no encontrado"
+            )
+
+        # Verificar si existe en Firestore
+        negocio['existe_en_firestore'] = ConsultorioService.verificar_existe_en_firestore(
+            negocio_id,
+            firestore_service
+        )
+
+        return {
+            "success": True,
+            "data": negocio,
+            "message": "Negocio encontrado"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting negocio {negocio_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener negocio: {str(e)}")
+
+
+# ==========================================
+# FUNCIONES AUXILIARES
+# ==========================================
 
 def calculate_priority(minutes_until: float) -> Dict:
     """Calcular prioridad de una cita"""
-    
+
     if minutes_until < -30:
         return {
             'level': 'PAST_DUE',
@@ -509,7 +1003,7 @@ def calculate_priority(minutes_until: float) -> Dict:
             'pulse': False,
             'sound_alert': False
         }
-    
+
     if minutes_until <= 15:
         return {
             'level': 'CRITICAL',
@@ -520,7 +1014,7 @@ def calculate_priority(minutes_until: float) -> Dict:
             'sound_alert': True,
             'badge': '🚨 URGENTE'
         }
-    
+
     elif minutes_until <= 30:
         return {
             'level': 'HIGH',
@@ -531,20 +1025,20 @@ def calculate_priority(minutes_until: float) -> Dict:
             'sound_alert': False,
             'badge': '⚠️ PRÓXIMA'
         }
-    
+
     elif minutes_until <= 60 :
             return {
                 'level': 'MEDIUM',
                 'score': 70 - max(0, (minutes_until - 30) / 2),
                 'reason': f'En {int(minutes_until)} min',
-                'color': 'yellow', 
+                'color': 'yellow',
                 'pulse': False,
                 'sound_alert': False,
                 'badge': '🟡 Por confirmar'
             }
-    
 
-    
+
+
     else:
         hours = int(minutes_until / 60)
         mins = int(minutes_until % 60)
@@ -563,7 +1057,7 @@ def get_pago_status(appointment: Dict) -> Dict:
     Determinar estado del pago basado en la estructura real
     """
     pago = appointment.get('pago')
-    
+
     # No hay objeto pago o no requiere pago
     if not pago :
         return {
@@ -572,7 +1066,7 @@ def get_pago_status(appointment: Dict) -> Dict:
             'text': 'Sin pago',
             'color': 'red'
         }
-    
+
     # Verificar si el pago fue realizado
     if pago.get('realizado'):
         # Pago realizado pero no validado
@@ -607,7 +1101,7 @@ def get_pago_status(appointment: Dict) -> Dict:
 
 def determine_action(changes: Dict, stats: Dict) -> str:
     """Determinar acción sugerida basada en cambios y estadísticas"""
-    
+
     if stats.get('critical', 0) > 0:
         return 'SHOW_URGENT_ALERT'
     elif changes.get('total_changes', 0) > 5:

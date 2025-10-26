@@ -442,7 +442,7 @@ class UserCRUD(BaseCRUD):
         """Obtener todos los permisos (para superadmin)"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 cursor.execute("""
                 SELECT CONCAT(m.nombre, ':', a.codigo) as permiso
                 FROM modulos m
@@ -470,7 +470,7 @@ class UserCRUD(BaseCRUD):
         """
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 cursor.execute("""
                 SELECT DISTINCT CONCAT(m.nombre, ':', a.codigo) as permiso
                 FROM modulos m
@@ -492,7 +492,7 @@ class UserCRUD(BaseCRUD):
         """Actualizar último consultorio activo del usuario"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 cursor.execute("""
                     UPDATE users 
                     SET ultimo_consultorio_activo = %s, updated_at = CURRENT_TIMESTAMP
@@ -566,7 +566,7 @@ class UserCRUD(BaseCRUD):
         """Crear nuevo usuario"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 # Hash de la contraseña
                 password_hash = hash_password(obj_in['password'])
@@ -603,7 +603,7 @@ class UserCRUD(BaseCRUD):
         """Actualizar usuario existente"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 # Construir query dinámicamente
                 fields = []
@@ -651,7 +651,7 @@ class UserCRUD(BaseCRUD):
         """Eliminar usuario (soft delete)"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 cursor.execute("""
                     UPDATE users 
                     SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
@@ -667,7 +667,7 @@ class UserCRUD(BaseCRUD):
         """Contar usuarios con filtros"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 query = "SELECT COUNT(*) FROM users WHERE is_active = TRUE"
                 params = []
@@ -694,7 +694,7 @@ class UserCRUD(BaseCRUD):
         """Cambiar contraseña del usuario"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 password_hash = hash_password(new_password)
                 cursor.execute("""
@@ -713,7 +713,7 @@ class UserCRUD(BaseCRUD):
         """Verificar si username ya existe"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 query = "SELECT COUNT(*) FROM users WHERE username = %s"
                 params = [username.lower().strip()]
@@ -733,7 +733,7 @@ class UserCRUD(BaseCRUD):
         """Verificar si email ya existe"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 query = "SELECT COUNT(*) FROM users WHERE email = %s"
                 params = [email.lower().strip()]
