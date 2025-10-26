@@ -187,7 +187,7 @@ class ConsultorioService:
         """
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
 
                 # Preparar configuracion JSON
                 configuracion = {
@@ -355,7 +355,7 @@ class ConsultorioService:
         """
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
 
                 # Verificar que el consultorio existe
                 cursor.execute("SELECT id FROM consultorios WHERE id = %s", (consultorio_id,))
@@ -412,7 +412,7 @@ class ConsultorioService:
         """
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
 
                 # Eliminar consultorio
                 query = "DELETE FROM consultorios WHERE id = %s"

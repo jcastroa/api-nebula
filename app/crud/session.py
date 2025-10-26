@@ -22,7 +22,7 @@ class SessionCRUD(BaseCRUD):
         """Obtener sesión por session_id"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor(dictionary=True)
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 cursor.execute("""
                     SELECT s.*, u.username, u.email
                     FROM user_sessions s
@@ -51,7 +51,7 @@ class SessionCRUD(BaseCRUD):
         """Obtener sesiones de un usuario por status"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor(dictionary=True)
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 cursor.execute("""
                     SELECT s.*, u.username, u.email
                     FROM user_sessions s
@@ -84,7 +84,7 @@ class SessionCRUD(BaseCRUD):
         """Obtener múltiples sesiones con filtros"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor(dictionary=True)
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 query = """
                     SELECT s.*, u.username, u.email
@@ -132,7 +132,7 @@ class SessionCRUD(BaseCRUD):
         """Crear nueva sesión"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 cursor.execute("""
                     INSERT INTO user_sessions 
@@ -164,7 +164,7 @@ class SessionCRUD(BaseCRUD):
         """Actualizar sesión existente"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 # Campos actualizables
                 fields = []
@@ -198,7 +198,7 @@ class SessionCRUD(BaseCRUD):
         """Eliminar sesión (hard delete)"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 cursor.execute("""
                     DELETE FROM user_sessions WHERE session_id = %s
                 """, (session_id,))
@@ -212,7 +212,7 @@ class SessionCRUD(BaseCRUD):
         """Contar sesiones con filtros"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 query = "SELECT COUNT(*) FROM user_sessions WHERE 1=1"
                 params = []
@@ -237,7 +237,7 @@ class SessionCRUD(BaseCRUD):
         """Revocar sesión específica"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 cursor.execute("""
                     UPDATE user_sessions 
                     SET status = 'revoked', 
@@ -260,7 +260,7 @@ class SessionCRUD(BaseCRUD):
         """Revocar todas las sesiones de un usuario"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 query = """
                     UPDATE user_sessions 
@@ -286,7 +286,7 @@ class SessionCRUD(BaseCRUD):
         """Limpiar sesiones expiradas automáticamente"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 cutoff_time = datetime.utcnow() - timedelta(hours=hours)
                 cursor.execute("""
@@ -307,7 +307,7 @@ class SessionCRUD(BaseCRUD):
         """Obtener estadísticas de sesiones"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 stats = {}
                 
@@ -354,7 +354,7 @@ class SessionCRUD(BaseCRUD):
         """Obtener sesiones más recientes"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor(dictionary=True)
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 cursor.execute("""
                     SELECT s.session_id, s.user_id, u.username, s.ip_address,
                            s.created_at, s.last_activity, s.status
@@ -377,7 +377,7 @@ class SessionCRUD(BaseCRUD):
         """Obtener historial de sesiones de un usuario"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor(dictionary=True)
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 cursor.execute("""
                     SELECT session_id, ip_address, user_agent, device_info,
                            created_at, last_activity, expires_at, status,
@@ -407,7 +407,7 @@ class SessionCRUD(BaseCRUD):
         """Limpiar sesiones muy antiguas (hard delete)"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 
                 cutoff_date = datetime.utcnow() - timedelta(days=days)
                 cursor.execute("""
@@ -426,7 +426,7 @@ class SessionCRUD(BaseCRUD):
         """Obtener sesiones activas por IP (para detección de abuso)"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor(dictionary=True)
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 cursor.execute("""
                     SELECT s.session_id, s.user_id, u.username, s.created_at,
                            s.last_activity, s.user_agent
@@ -445,7 +445,7 @@ class SessionCRUD(BaseCRUD):
         """Actualizar última actividad de una sesión"""
         try:
             with get_db_connection() as conn:
-                cursor = conn.cursor()
+                cursor = conn.cursor(dictionary=True, buffered=True)
                 cursor.execute("""
                     UPDATE user_sessions 
                     SET last_activity = CURRENT_TIMESTAMP
