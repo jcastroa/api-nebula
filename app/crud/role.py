@@ -116,3 +116,24 @@ class RoleCRUD(BaseCRUD):
         except Exception as e:
             logger.error(f"Error counting roles: {e}")
             return 0
+
+    async def create(self, obj_in: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Crear rol - No implementado
+        Los roles son datos de configuración del sistema
+        """
+        raise NotImplementedError("Role creation is not available through the API")
+
+    async def update(self, id: int, obj_in: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Actualizar rol - No implementado
+        Los roles son datos de configuración del sistema
+        """
+        raise NotImplementedError("Role update is not available through the API")
+
+    async def delete(self, id: int) -> bool:
+        """
+        Eliminar rol - No implementado
+        Los roles son datos de configuración del sistema
+        """
+        raise NotImplementedError("Role deletion is not available through the API")
