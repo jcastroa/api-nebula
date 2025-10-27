@@ -24,8 +24,8 @@ class UserCRUD(BaseCRUD):
                 cursor = conn.cursor(dictionary=True)
                 cursor.execute("""
                     SELECT id, username, email, first_name, last_name,
-                           is_active, created_at, updated_at, ultimo_consultorio_activo
-                    FROM users 
+                           is_active, rol_global_id, created_at, updated_at, ultimo_consultorio_activo
+                    FROM users
                     WHERE id = %s AND is_active = TRUE
                 """, (id,))
                 return cursor.fetchone()
@@ -534,8 +534,8 @@ class UserCRUD(BaseCRUD):
                 # Query base
                 query = """
                     SELECT id, username, email, first_name, last_name,
-                           is_active, created_at, updated_at
-                    FROM users 
+                           is_active, rol_global_id, created_at, updated_at
+                    FROM users
                     WHERE is_active = TRUE
                 """
                 params = []
@@ -573,16 +573,17 @@ class UserCRUD(BaseCRUD):
                 
                 # Insertar usuario
                 cursor.execute("""
-                    INSERT INTO users 
-                    (username, email, password_hash, first_name, last_name, is_admin)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO users
+                    (username, email, password_hash, first_name, last_name, is_admin, rol_global_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (
                     obj_in['username'].lower().strip(),
                     obj_in['email'].lower().strip(),
                     password_hash,
                     obj_in.get('first_name'),
                     obj_in.get('last_name'),
-                    obj_in.get('is_admin', False)
+                    obj_in.get('is_admin', False),
+                    obj_in.get('rol_global_id')
                 ))
                 
                 user_id = cursor.lastrowid
@@ -610,7 +611,7 @@ class UserCRUD(BaseCRUD):
                 params = []
                 
                 # Campos actualizables
-                updateable_fields = ['email', 'first_name', 'last_name', 'is_active', 'is_admin']
+                updateable_fields = ['email', 'first_name', 'last_name', 'is_active', 'is_admin', 'rol_global_id']
                 
                 for field in updateable_fields:
                     if field in obj_in and obj_in[field] is not None:

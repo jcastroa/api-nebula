@@ -15,6 +15,7 @@ class UserCreate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     is_admin: bool = False
+    rol_global_id: Optional[int] = None
     
     @validator('username')
     def validate_username(cls, v):
@@ -43,6 +44,7 @@ class UserUpdate(BaseModel):
     last_name: Optional[str] = None
     is_active: Optional[bool] = None
     is_admin: Optional[bool] = None
+    rol_global_id: Optional[int] = None
     
     @validator('first_name', 'last_name')
     def validate_names(cls, v):
@@ -59,6 +61,7 @@ class UserResponse(BaseModel):
     last_name: Optional[str] = None
     is_active: bool = True
     is_admin: bool = False
+    rol_global_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
     
@@ -82,3 +85,65 @@ class UserListResponse(BaseModel):
     total: int
     page: int
     size: int
+
+# ==========================================
+# Schemas para asignaciones de usuarios a negocios
+# ==========================================
+
+class AssignmentCreate(BaseModel):
+    """Schema para crear asignación de usuario a negocio"""
+    usuario_id: int
+    consultorio_id: int
+    rol_id: int
+    es_principal: bool = False
+    fecha_inicio: Optional[str] = None
+    fecha_fin: Optional[str] = None
+
+    @validator('usuario_id', 'consultorio_id', 'rol_id')
+    def validate_ids(cls, v):
+        if v <= 0:
+            raise ValueError('ID debe ser mayor a 0')
+        return v
+
+class AssignmentUpdate(BaseModel):
+    """Schema para actualizar asignación"""
+    rol_id: Optional[int] = None
+    es_principal: Optional[bool] = None
+    fecha_inicio: Optional[str] = None
+    fecha_fin: Optional[str] = None
+
+    @validator('rol_id')
+    def validate_rol_id(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError('rol_id debe ser mayor a 0')
+        return v
+
+class AssignmentResponse(BaseModel):
+    """Schema para respuesta de asignación"""
+    id: int
+    usuario_id: int
+    consultorio_id: int
+    consultorio_nombre: Optional[str] = None
+    rol_id: int
+    rol_nombre: Optional[str] = None
+    es_principal: bool
+    estado: str
+    fecha_asignacion: datetime
+    fecha_inicio: Optional[str] = None
+    fecha_fin: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class RoleResponse(BaseModel):
+    """Schema para respuesta de rol"""
+    id_rol: int
+    nombre: str
+    descripcion: Optional[str] = None
+    activo: Optional[bool] = True
+    fecha_creacion: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

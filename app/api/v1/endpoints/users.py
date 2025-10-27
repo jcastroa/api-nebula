@@ -370,3 +370,75 @@ async def force_logout_user(
     except Exception as e:
         logger.error(f"Error forcing logout for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Error forcing user logout")
+
+@router.patch("/{user_id}/activar", response_model=SuccessResponse)
+async def activate_user(
+    user_id: int,
+    admin_user: dict = Depends(get_admin_user),
+    user_crud: UserCRUD = Depends(get_user_crud)
+):
+    """
+    Activar usuario (solo administradores)
+    """
+    try:
+        # Verificar que el usuario existe
+        existing_user = await user_crud.get(user_id)
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Verificar si ya está activo
+        if existing_user.get('is_active', False):
+            raise HTTPException(status_code=400, detail="User is already active")
+
+        # Activar usuario
+        updated_user = await user_crud.update(user_id, {'is_active': True})
+        if not updated_user:
+            raise HTTPException(status_code=500, detail="Error activating user")
+
+        logger.info(f"User {user_id} activated by admin {admin_user['username']}")
+
+        return SuccessResponse(message="User activated successfully")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error activating user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error activating user")
+
+@router.patch("/{user_id}/desactivar", response_model=SuccessResponse)
+async def deactivate_user(
+    user_id: int,
+    admin_user: dict = Depends(get_admin_user),
+    user_crud: UserCRUD = Depends(get_user_crud)
+):
+    """
+    Desactivar usuario (solo administradores)
+    """
+    try:
+        # Verificar que el usuario existe
+        existing_user = await user_crud.get(user_id)
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # No permitir auto-desactivación
+        if admin_user['id'] == user_id:
+            raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
+
+        # Verificar si ya está inactivo
+        if not existing_user.get('is_active', True):
+            raise HTTPException(status_code=400, detail="User is already inactive")
+
+        # Desactivar usuario
+        updated_user = await user_crud.update(user_id, {'is_active': False})
+        if not updated_user:
+            raise HTTPException(status_code=500, detail="Error deactivating user")
+
+        logger.info(f"User {user_id} deactivated by admin {admin_user['username']}")
+
+        return SuccessResponse(message="User deactivated successfully")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deactivating user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error deactivating user")

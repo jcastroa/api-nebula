@@ -6,6 +6,8 @@ from typing import Optional, Dict, Any
 from app.services.auth_service import AuthService
 from app.crud.user import UserCRUD
 from app.crud.session import SessionCRUD
+from app.crud.assignment import AssignmentCRUD
+from app.crud.role import RoleCRUD
 
 # HTTPBearer para auth
 security = HTTPBearer(auto_error=False)
@@ -14,6 +16,8 @@ security = HTTPBearer(auto_error=False)
 _auth_service = None
 _user_crud = None
 _session_crud = None
+_assignment_crud = None
+_role_crud = None
 
 def get_auth_service() -> AuthService:
     global _auth_service
@@ -32,6 +36,18 @@ def get_session_crud() -> SessionCRUD:
     if _session_crud is None:
         _session_crud = SessionCRUD()
     return _session_crud
+
+def get_assignment_crud() -> AssignmentCRUD:
+    global _assignment_crud
+    if _assignment_crud is None:
+        _assignment_crud = AssignmentCRUD()
+    return _assignment_crud
+
+def get_role_crud() -> RoleCRUD:
+    global _role_crud
+    if _role_crud is None:
+        _role_crud = RoleCRUD()
+    return _role_crud
 
 async def get_current_user(
     request: Request,
