@@ -17,7 +17,7 @@ from app.schemas.user import (
 )
 from app.schemas.response import SuccessResponse
 from app.crud.user import UserCRUD
-from app.dependencies import get_auth_service, get_current_user, get_user_crud, get_admin_user
+from app.dependencies import get_auth_service, get_current_user, get_user_crud
 from app.core.security import verify_password
 
 logger = logging.getLogger(__name__)
@@ -29,11 +29,11 @@ async def get_users(
     limit: int = Query(50, ge=1, le=1000, description="Max records to return"),
     search: Optional[str] = Query(None, description="Search in username/email/name"),
     is_admin: Optional[bool] = Query(None, description="Filter by admin status"),
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     user_crud: UserCRUD = Depends(get_user_crud)
 ):
     """
-    Obtener lista de usuarios (solo administradores)
+    Obtener lista de usuarios
     """
     try:
         # Preparar filtros
@@ -66,19 +66,13 @@ async def get_user(
 ):
     """
     Obtener usuario específico
-    - Usuarios pueden ver su propia información
-    - Admins pueden ver cualquier usuario
     """
     try:
-        # Verificar permisos
-        if current_user['id'] != user_id and not current_user.get('is_admin', False):
-            raise HTTPException(status_code=403, detail="Access denied")
-        
         # Obtener usuario
         user = await user_crud.get(user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        
+
         return UserResponse(**user)
         
     except HTTPException:
@@ -90,11 +84,11 @@ async def get_user(
 @router.post("/", response_model=UserResponse)
 async def create_user(
     user_data: UserCreate,
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     user_crud: UserCRUD = Depends(get_user_crud)
 ):
     """
-    Crear nuevo usuario (solo administradores)
+    Crear nuevo usuario
     """
     try:
         # Verificar que username no existe
@@ -110,7 +104,7 @@ async def create_user(
         if not user:
             raise HTTPException(status_code=500, detail="Error creating user")
         
-        logger.info(f"User {user['username']} created by admin {admin_user['username']}")
+        logger.info(f"User {user['username']} created by {current_user['username']}")
         
         return UserResponse(**user)
         
@@ -129,47 +123,25 @@ async def update_user(
 ):
     """
     Actualizar usuario
-    - Usuarios pueden actualizar su propia información (campos limitados)
-    - Admins pueden actualizar cualquier usuario
     """
     try:
         # Verificar que el usuario existe
         existing_user = await user_crud.get(user_id)
         if not existing_user:
             raise HTTPException(status_code=404, detail="User not found")
-        
-        # Verificar permisos
-        is_own_profile = current_user['id'] == user_id
-        is_admin = current_user.get('is_admin', False)
-        
-        if not is_own_profile and not is_admin:
-            raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Si no es admin, limitar campos actualizables
-        if not is_admin:
-            # Usuarios normales solo pueden actualizar email, first_name, last_name
-            allowed_fields = {'email', 'first_name', 'last_name'}
-            update_fields = set(user_data.dict(exclude_unset=True).keys())
-            
-            if not update_fields.issubset(allowed_fields):
-                forbidden_fields = update_fields - allowed_fields
-                raise HTTPException(
-                    status_code=403, 
-                    detail=f"Cannot update fields: {list(forbidden_fields)}"
-                )
-        
+
         # Verificar email único si se está actualizando
         if user_data.email:
             if await user_crud.email_exists(user_data.email, exclude_id=user_id):
                 raise HTTPException(status_code=400, detail="Email already exists")
-        
+
         # Actualizar usuario
         updated_user = await user_crud.update(user_id, user_data.dict(exclude_unset=True))
         if not updated_user:
             raise HTTPException(status_code=500, detail="Error updating user")
-        
+
         logger.info(f"User {user_id} updated by {current_user['username']}")
-        
+
         return UserResponse(**updated_user)
         
     except HTTPException:
@@ -181,11 +153,11 @@ async def update_user(
 @router.delete("/{user_id}", response_model=SuccessResponse)
 async def delete_user(
     user_id: int,
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     user_crud: UserCRUD = Depends(get_user_crud)
 ):
     """
-    Eliminar usuario (solo administradores)
+    Eliminar usuario
     """
     try:
         # Verificar que el usuario existe
@@ -194,15 +166,15 @@ async def delete_user(
             raise HTTPException(status_code=404, detail="User not found")
         
         # No permitir auto-eliminación
-        if admin_user['id'] == user_id:
+        if current_user['id'] == user_id:
             raise HTTPException(status_code=400, detail="Cannot delete yourself")
-        
+
         # Eliminar usuario (soft delete)
         success = await user_crud.delete(user_id)
         if not success:
             raise HTTPException(status_code=500, detail="Error deleting user")
-        
-        logger.info(f"User {user_id} deleted by admin {admin_user['username']}")
+
+        logger.info(f"User {user_id} deleted by {current_user['username']}")
         
         return SuccessResponse(message="User deleted successfully")
         
@@ -254,32 +226,12 @@ async def get_user_sessions(
 ):
     """
     Obtener sesiones de un usuario
-    - Usuarios pueden ver sus propias sesiones
-    - Admins pueden ver sesiones de cualquier usuario
     """
     try:
-        # Verificar permisos
-        if current_user['id'] != user_id and not current_user.get('is_admin', False):
-            raise HTTPException(status_code=403, detail="Access denied")
-        
         # Obtener sesiones
         sessions = await auth_service.get_user_sessions(user_id, include_inactive=True)
-        
-        # Filtrar información sensible para usuarios normales
-        if not current_user.get('is_admin', False):
-            safe_sessions = []
-            for session in sessions:
-                safe_sessions.append({
-                    "session_id": session["session_id"],
-                    "ip_address": session["ip_address"],
-                    "device_info": session.get("device_info", {}),
-                    "created_at": session["created_at"],
-                    "last_activity": session["last_activity"],
-                    "status": session["status"]
-                })
-            return {"sessions": safe_sessions}
-        else:
-            return {"sessions": sessions}
+
+        return {"sessions": sessions}
         
     except HTTPException:
         raise
@@ -291,11 +243,11 @@ async def get_user_sessions(
 async def revoke_user_sessions_admin(
     user_id: int,
     reason: str = Query(..., description="Reason for revocation"),
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     auth_service: AuthService = Depends(get_auth_service)
 ):
     """
-    Revocar todas las sesiones de un usuario específico (solo administradores)
+    Revocar todas las sesiones de un usuario específico
     """
     try:
         # Verificar que el usuario existe
@@ -305,22 +257,15 @@ async def revoke_user_sessions_admin(
         if not target_user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        # No permitir revocar sesiones de otro admin (seguridad adicional)
-        if target_user.get('is_admin', False) and admin_user['id'] != user_id:
-            raise HTTPException(
-                status_code=403, 
-                detail="Cannot revoke sessions of another administrator"
-            )
-        
         # Revocar todas las sesiones del usuario
         revoked_count = await auth_service.revoke_all_user_sessions(
-            user_id, 
-            f"admin:{reason}"
+            user_id,
+            f"user:{reason}"
         )
-        
+
         logger.info(
             f"All sessions for user {user_id} ({target_user['username']}) "
-            f"revoked by admin {admin_user['username']}: {reason}"
+            f"revoked by {current_user['username']}: {reason}"
         )
         
         return SuccessResponse(
@@ -336,12 +281,11 @@ async def revoke_user_sessions_admin(
 @router.post("/{user_id}/force-logout", response_model=SuccessResponse)
 async def force_logout_user(
     user_id: int,
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     auth_service: AuthService = Depends(get_auth_service)
 ):
     """
     Forzar logout de un usuario (revocar todas sus sesiones)
-    Alias más claro para revoke_user_sessions_admin
     """
     try:
         user_crud = UserCRUD()
@@ -352,13 +296,13 @@ async def force_logout_user(
         
         # Usar razón estándar para force logout
         revoked_count = await auth_service.revoke_all_user_sessions(
-            user_id, 
-            "admin:force_logout"
+            user_id,
+            "user:force_logout"
         )
-        
+
         logger.info(
             f"Force logout for user {user_id} ({target_user['username']}) "
-            f"by admin {admin_user['username']}"
+            f"by {current_user['username']}"
         )
         
         return SuccessResponse(
@@ -374,11 +318,11 @@ async def force_logout_user(
 @router.patch("/{user_id}/activar", response_model=SuccessResponse)
 async def activate_user(
     user_id: int,
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     user_crud: UserCRUD = Depends(get_user_crud)
 ):
     """
-    Activar usuario (solo administradores)
+    Activar usuario
     """
     try:
         # Verificar que el usuario existe
@@ -395,7 +339,7 @@ async def activate_user(
         if not updated_user:
             raise HTTPException(status_code=500, detail="Error activating user")
 
-        logger.info(f"User {user_id} activated by admin {admin_user['username']}")
+        logger.info(f"User {user_id} activated by {current_user['username']}")
 
         return SuccessResponse(message="User activated successfully")
 
@@ -408,11 +352,11 @@ async def activate_user(
 @router.patch("/{user_id}/desactivar", response_model=SuccessResponse)
 async def deactivate_user(
     user_id: int,
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     user_crud: UserCRUD = Depends(get_user_crud)
 ):
     """
-    Desactivar usuario (solo administradores)
+    Desactivar usuario
     """
     try:
         # Verificar que el usuario existe
@@ -421,7 +365,7 @@ async def deactivate_user(
             raise HTTPException(status_code=404, detail="User not found")
 
         # No permitir auto-desactivación
-        if admin_user['id'] == user_id:
+        if current_user['id'] == user_id:
             raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
 
         # Verificar si ya está inactivo
@@ -433,7 +377,7 @@ async def deactivate_user(
         if not updated_user:
             raise HTTPException(status_code=500, detail="Error deactivating user")
 
-        logger.info(f"User {user_id} deactivated by admin {admin_user['username']}")
+        logger.info(f"User {user_id} deactivated by {current_user['username']}")
 
         return SuccessResponse(message="User deactivated successfully")
 

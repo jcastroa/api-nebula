@@ -13,7 +13,7 @@ from app.crud.assignment import AssignmentCRUD
 from app.crud.user import UserCRUD
 from app.services.consultorio_service import ConsultorioService
 from app.crud.role import RoleCRUD
-from app.dependencies import get_current_user, get_admin_user, get_assignment_crud, get_user_crud, get_role_crud
+from app.dependencies import get_current_user, get_assignment_crud, get_user_crud, get_role_crud
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/usuarios")
@@ -21,13 +21,13 @@ router = APIRouter(prefix="/usuarios")
 @router.post("/asignaciones", response_model=AssignmentResponse)
 async def create_assignment(
     assignment_data: AssignmentCreate,
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     assignment_crud: AssignmentCRUD = Depends(get_assignment_crud),
     user_crud: UserCRUD = Depends(get_user_crud),
     role_crud: RoleCRUD = Depends(get_role_crud)
 ):
     """
-    Crear asignación de usuario a negocio (solo administradores)
+    Crear asignación de usuario a negocio
     """
     try:
         # Verificar que el usuario existe
@@ -55,7 +55,7 @@ async def create_assignment(
 
         logger.info(
             f"Assignment created: User {assignment_data.usuario_id} -> "
-            f"Business {assignment_data.consultorio_id} by admin {admin_user['username']}"
+            f"Business {assignment_data.consultorio_id} by {current_user['username']}"
         )
 
         return AssignmentResponse(**assignment)
@@ -75,14 +75,8 @@ async def get_user_assignments(
 ):
     """
     Obtener asignaciones de un usuario
-    - Usuarios pueden ver sus propias asignaciones
-    - Admins pueden ver asignaciones de cualquier usuario
     """
     try:
-        # Verificar permisos
-        if current_user['id'] != user_id and not current_user.get('is_admin', False):
-            raise HTTPException(status_code=403, detail="Access denied")
-
         # Verificar que el usuario existe
         user = await user_crud.get(user_id)
         if not user:
@@ -103,12 +97,12 @@ async def get_user_assignments(
 async def update_assignment(
     assignment_id: int = Path(..., gt=0, description="Assignment ID"),
     assignment_data: AssignmentUpdate = None,
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     assignment_crud: AssignmentCRUD = Depends(get_assignment_crud),
     role_crud: RoleCRUD = Depends(get_role_crud)
 ):
     """
-    Actualizar asignación (solo administradores)
+    Actualizar asignación
     """
     try:
         # Verificar que la asignación existe
@@ -131,7 +125,7 @@ async def update_assignment(
             raise HTTPException(status_code=500, detail="Error updating assignment")
 
         logger.info(
-            f"Assignment {assignment_id} updated by admin {admin_user['username']}"
+            f"Assignment {assignment_id} updated by {current_user['username']}"
         )
 
         return AssignmentResponse(**updated_assignment)
@@ -145,11 +139,11 @@ async def update_assignment(
 @router.patch("/asignaciones/{assignment_id}/activar", response_model=SuccessResponse)
 async def activate_assignment(
     assignment_id: int = Path(..., gt=0, description="Assignment ID"),
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     assignment_crud: AssignmentCRUD = Depends(get_assignment_crud)
 ):
     """
-    Activar asignación (solo administradores)
+    Activar asignación
     """
     try:
         # Verificar que la asignación existe
@@ -167,7 +161,7 @@ async def activate_assignment(
             raise HTTPException(status_code=500, detail="Error activating assignment")
 
         logger.info(
-            f"Assignment {assignment_id} activated by admin {admin_user['username']}"
+            f"Assignment {assignment_id} activated by {current_user['username']}"
         )
 
         return SuccessResponse(message="Assignment activated successfully")
@@ -181,11 +175,11 @@ async def activate_assignment(
 @router.patch("/asignaciones/{assignment_id}/desactivar", response_model=SuccessResponse)
 async def deactivate_assignment(
     assignment_id: int = Path(..., gt=0, description="Assignment ID"),
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     assignment_crud: AssignmentCRUD = Depends(get_assignment_crud)
 ):
     """
-    Desactivar asignación (solo administradores)
+    Desactivar asignación
     """
     try:
         # Verificar que la asignación existe
@@ -203,7 +197,7 @@ async def deactivate_assignment(
             raise HTTPException(status_code=500, detail="Error deactivating assignment")
 
         logger.info(
-            f"Assignment {assignment_id} deactivated by admin {admin_user['username']}"
+            f"Assignment {assignment_id} deactivated by {current_user['username']}"
         )
 
         return SuccessResponse(message="Assignment deactivated successfully")
