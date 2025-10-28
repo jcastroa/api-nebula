@@ -25,10 +25,9 @@ router = APIRouter(prefix="/users")
 
 @router.get("/", response_model=UserListResponse)
 async def get_users(
-    skip: int = Query(0, ge=0, description="Records to skip"),
+    page: int = Query(1, ge=1, description="Page number (starts from 1)"),
     limit: int = Query(50, ge=1, le=1000, description="Max records to return"),
     search: Optional[str] = Query(None, description="Search in username/email/name"),
-    is_admin: Optional[bool] = Query(None, description="Filter by admin status"),
     current_user: dict = Depends(get_current_user),
     user_crud: UserCRUD = Depends(get_user_crud)
 ):
@@ -36,21 +35,22 @@ async def get_users(
     Obtener lista de usuarios
     """
     try:
+        # Calcular skip basado en page
+        skip = (page - 1) * limit
+
         # Preparar filtros
         filters = {}
         if search:
             filters['search'] = search.strip()
-        if is_admin is not None:
-            filters['is_admin'] = is_admin
-        
+
         # Obtener usuarios y total
         users = await user_crud.get_multi(skip=skip, limit=limit, filters=filters)
         total = await user_crud.count(filters=filters)
-        
+
         return UserListResponse(
             users=[UserResponse(**user) for user in users],
             total=total,
-            page=skip // limit + 1,
+            page=page,
             size=len(users)
         )
         

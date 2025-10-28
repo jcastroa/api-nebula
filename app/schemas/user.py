@@ -14,7 +14,6 @@ class UserCreate(BaseModel):
     password: str
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    is_admin: bool = False
     rol_global_id: Optional[int] = None
     
     @validator('username')
@@ -43,7 +42,6 @@ class UserUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     is_active: Optional[bool] = None
-    is_admin: Optional[bool] = None
     rol_global_id: Optional[int] = None
     
     @validator('first_name', 'last_name')
@@ -60,8 +58,8 @@ class UserResponse(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     is_active: bool = True
-    is_admin: bool = False
     rol_global_id: Optional[int] = None
+    rol_global_nombre: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     

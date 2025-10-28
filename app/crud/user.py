@@ -23,10 +23,12 @@ class UserCRUD(BaseCRUD):
             with get_db_connection() as conn:
                 cursor = conn.cursor(dictionary=True)
                 cursor.execute("""
-                    SELECT id, username, email, first_name, last_name,
-                           is_active, rol_global_id, created_at, updated_at, ultimo_consultorio_activo
-                    FROM users
-                    WHERE id = %s AND is_active = TRUE
+                    SELECT u.id, u.username, u.email, u.first_name, u.last_name,
+                           u.is_active, u.rol_global_id, r.nombre as rol_global_nombre,
+                           u.created_at, u.updated_at, u.ultimo_consultorio_activo
+                    FROM users u
+                    LEFT JOIN roles r ON u.rol_global_id = r.id_rol
+                    WHERE u.id = %s AND u.is_active = TRUE
                 """, (id,))
                 return cursor.fetchone()
         except Exception as e:
@@ -521,8 +523,8 @@ class UserCRUD(BaseCRUD):
             return None
     
     async def get_multi(
-        self, 
-        skip: int = 0, 
+        self,
+        skip: int = 0,
         limit: int = 100,
         filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
@@ -530,34 +532,32 @@ class UserCRUD(BaseCRUD):
         try:
             with get_db_connection() as conn:
                 cursor = conn.cursor(dictionary=True)
-                
-                # Query base
+
+                # Query base con JOIN a roles
                 query = """
-                    SELECT id, username, email, first_name, last_name,
-                           is_active, rol_global_id, created_at, updated_at
-                    FROM users
-                    WHERE is_active = TRUE
+                    SELECT u.id, u.username, u.email, u.first_name, u.last_name,
+                           u.is_active, u.rol_global_id, r.nombre as rol_global_nombre,
+                           u.created_at, u.updated_at
+                    FROM users u
+                    LEFT JOIN roles r ON u.rol_global_id = r.id_rol
+                    WHERE u.is_active = TRUE
                 """
                 params = []
-                
+
                 # Aplicar filtros
                 if filters:
-                    if filters.get('is_admin') is not None:
-                        query += " AND is_admin = %s"
-                        params.append(filters['is_admin'])
-                    
                     if filters.get('search'):
                         search_term = f"%{filters['search']}%"
-                        query += " AND (username LIKE %s OR email LIKE %s OR first_name LIKE %s OR last_name LIKE %s)"
+                        query += " AND (u.username LIKE %s OR u.email LIKE %s OR u.first_name LIKE %s OR u.last_name LIKE %s)"
                         params.extend([search_term, search_term, search_term, search_term])
-                
+
                 # Ordenar y paginar
-                query += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
+                query += " ORDER BY u.created_at DESC LIMIT %s OFFSET %s"
                 params.extend([limit, skip])
-                
+
                 cursor.execute(query, params)
                 return cursor.fetchall()
-                
+
         except Exception as e:
             logger.error(f"Error getting users: {e}")
             return []
@@ -574,15 +574,14 @@ class UserCRUD(BaseCRUD):
                 # Insertar usuario
                 cursor.execute("""
                     INSERT INTO users
-                    (username, email, password_hash, first_name, last_name, is_admin, rol_global_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    (username, email, password_hash, first_name, last_name, rol_global_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                 """, (
                     obj_in['username'].lower().strip(),
                     obj_in['email'].lower().strip(),
                     password_hash,
                     obj_in.get('first_name'),
                     obj_in.get('last_name'),
-                    obj_in.get('is_admin', False),
                     obj_in.get('rol_global_id')
                 ))
                 
@@ -611,7 +610,7 @@ class UserCRUD(BaseCRUD):
                 params = []
                 
                 # Campos actualizables
-                updateable_fields = ['email', 'first_name', 'last_name', 'is_active', 'is_admin', 'rol_global_id']
+                updateable_fields = ['email', 'first_name', 'last_name', 'is_active', 'rol_global_id']
                 
                 for field in updateable_fields:
                     if field in obj_in and obj_in[field] is not None:
@@ -672,12 +671,8 @@ class UserCRUD(BaseCRUD):
                 
                 query = "SELECT COUNT(*) FROM users WHERE is_active = TRUE"
                 params = []
-                
+
                 if filters:
-                    if filters.get('is_admin') is not None:
-                        query += " AND is_admin = %s"
-                        params.append(filters['is_admin'])
-                    
                     if filters.get('search'):
                         search_term = f"%{filters['search']}%"
                         query += " AND (username LIKE %s OR email LIKE %s)"

@@ -76,13 +76,5 @@ async def get_current_user(
     
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-    
-    return user
 
-async def get_admin_user(
-    current_user: Dict[str, Any] = Depends(get_current_user)
-) -> Dict[str, Any]:
-    """Usuario administrador"""
-    if not current_user.get('is_admin', False):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return current_user
+    return user
