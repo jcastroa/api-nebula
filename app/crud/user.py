@@ -567,10 +567,13 @@ class UserCRUD(BaseCRUD):
         try:
             with get_db_connection() as conn:
                 cursor = conn.cursor(dictionary=True, buffered=True)
-                
+
+                # Usar contraseña por defecto si no se proporciona
+                password = obj_in.get('password') or 'Cita247?'
+
                 # Hash de la contraseña
-                password_hash = hash_password(obj_in['password'])
-                
+                password_hash = hash_password(password)
+
                 # Insertar usuario
                 cursor.execute("""
                     INSERT INTO users
@@ -584,13 +587,13 @@ class UserCRUD(BaseCRUD):
                     obj_in.get('last_name'),
                     obj_in.get('rol_global_id')
                 ))
-                
+
                 user_id = cursor.lastrowid
                 conn.commit()
-                
+
                 # Retornar el usuario creado (sin password)
                 return await self.get(user_id)
-                
+
         except Exception as e:
             logger.error(f"Error creating user: {e}")
             return None

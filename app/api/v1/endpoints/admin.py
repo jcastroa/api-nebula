@@ -12,7 +12,7 @@ from app.schemas.response import SuccessResponse, AdminSessionsResponse, Metrics
 from app.services.auth_service import AuthService
 from app.crud.session import SessionCRUD
 from app.core.redis_client import redis_client
-from app.dependencies import get_admin_user, get_auth_service, get_session_crud
+from app.dependencies import get_current_user, get_auth_service, get_session_crud
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin")
@@ -24,7 +24,7 @@ async def get_all_sessions(
     ip_address: Optional[str] = Query(None, description="Filter by IP address"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     session_crud: SessionCRUD = Depends(get_session_crud)
 ):
     """
@@ -60,19 +60,19 @@ async def get_all_sessions(
 async def revoke_session_admin(
     session_id: str,
     reason: str = Query(..., description="Reason for revocation"),
-   # admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     auth_service: AuthService = Depends(get_auth_service)
 ):
     """
     Revocar sesión específica desde panel administrativo
     """
     try:
-        success = await auth_service.revoke_session(session_id, f"admin:{reason}")
+        success = await auth_service.revoke_session(session_id, f"user:{reason}")
         if not success:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        #logger.info(f"Session {session_id} revoked by admin {admin_user['username']}: {reason}")
-        
+
+        logger.info(f"Session {session_id} revoked by {current_user['username']}: {reason}")
+
         return SuccessResponse(message="Session revoked successfully")
         
     except HTTPException:
@@ -85,7 +85,7 @@ async def revoke_session_admin(
 async def revoke_user_sessions_admin(
     user_id: int,
     reason: str = Query(..., description="Reason for revocation"),
-    admin_user: dict = Depends(get_admin_user),
+    current_user: dict = Depends(get_current_user),
     auth_service: AuthService = Depends(get_auth_service)
 ):
     """
@@ -93,12 +93,12 @@ async def revoke_user_sessions_admin(
     """
     try:
         revoked_count = await auth_service.revoke_all_user_sessions(
-            user_id, 
-            f"admin:{reason}"
+            user_id,
+            f"user:{reason}"
         )
-        
-        logger.info(f"All sessions for user {user_id} revoked by admin {admin_user['username']}: {reason}")
-        
+
+        logger.info(f"All sessions for user {user_id} revoked by {current_user['username']}: {reason}")
+
         return SuccessResponse(
             message=f"Revoked {revoked_count} sessions successfully"
         )

@@ -12,7 +12,7 @@ from app.schemas.vinculacion import (
     CompletarVinculacionRequest
 )
 from app.schemas.response import SuccessResponse
-from app.dependencies import get_auth_service, get_current_user, get_user_crud, get_admin_user
+from app.dependencies import get_auth_service, get_current_user, get_user_crud
 
 from urllib.parse import urlencode, quote
 

@@ -11,11 +11,11 @@ class UserCreate(BaseModel):
     """Schema para crear usuario"""
     username: str
     email: EmailStr
-    password: str
+    password: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     rol_global_id: Optional[int] = None
-    
+
     @validator('username')
     def validate_username(cls, v):
         if len(v) < 3:
@@ -23,13 +23,13 @@ class UserCreate(BaseModel):
         if not v.replace('_', '').replace('-', '').isalnum():
             raise ValueError('Username can only contain letters, numbers, - and _')
         return v.lower().strip()
-    
+
     @validator('password')
     def validate_password(cls, v):
-        if len(v) < 8:
+        if v and len(v) < 8:
             raise ValueError('Password must be at least 8 characters')
         return v
-    
+
     @validator('first_name', 'last_name')
     def validate_names(cls, v):
         if v and len(v.strip()) == 0:
