@@ -221,7 +221,8 @@ class UserCRUD(BaseCRUD):
 
                 FROM users u
                 LEFT JOIN roles rg ON u.rol_global_id = rg.id_rol
-                LEFT JOIN consultorios cp ON cp.es_principal = 1
+                 LEFT JOIN usuario_consultorios uc ON  uc.usuario_id = u.id  and uc.es_principal = 1
+                 LEFT JOIN consultorios cp ON cp.id = uc.consultorio_id
                 LEFT JOIN consultorios cu ON u.ultimo_consultorio_activo = cu.id
                 WHERE u.id = %s AND u.is_active = 1
                 """, (usuario_id,))
