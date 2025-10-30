@@ -569,13 +569,12 @@ class UserCRUD(BaseCRUD):
                         query += " AND (u.username LIKE %s)"
                         params.append(username_term)
                     if filters.get('email'):
-                        email_term = f"%{filters['email']}%"
                         query += " AND u.email = %s"
-                        params.append(email_term)
+                        params.append(filters['email'])
                     if filters.get('rol_global'):
-                        rol_term = f"%{filters['rol_global']}%"
                         query += " AND r.nombre = %s"
-                        params.append(rol_term)
+                        params.append(filters['rol_global'])
+
 
                 # GROUP BY después de todos los filtros WHERE
                 query += " GROUP BY u.id, u.username, u.email, u.first_name, u.last_name, u.is_active, u.rol_global_id, r.nombre, u.created_at, u.updated_at"

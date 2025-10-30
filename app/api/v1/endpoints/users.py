@@ -52,6 +52,8 @@ async def get_users(
         if rol_global is not None:
             filters['rol_global'] = rol_global.strip()
 
+        print(f"📋 Filters: {filters}")
+
         # Obtener usuarios y total
         users = await user_crud.get_multi(skip=skip, limit=limit, filters=filters)
         total = await user_crud.count(filters=filters)
