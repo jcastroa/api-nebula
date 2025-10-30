@@ -6,7 +6,7 @@
 from fastapi import APIRouter
 from datetime import datetime
 
-from app.api.v1.endpoints import auth, users, admin, negocios, vinculacion
+from app.api.v1.endpoints import auth, users, admin, negocios, vinculacion, roles, assignments
 from app.core.database import get_db_connection
 from app.core.redis_client import redis_client
 from app.config import settings
@@ -18,8 +18,10 @@ api_router = APIRouter()
 api_router.include_router(auth.router, tags=["authentication"])
 api_router.include_router(users.router, tags=["users"])
 api_router.include_router(admin.router, tags=["administration"])
-api_router.include_router(negocios.router, tags=["negocios"])  # NUEVO
-api_router.include_router(vinculacion.router, tags=["vinculacion"])  # NUEVO
+api_router.include_router(negocios.router, tags=["negocios"])
+api_router.include_router(vinculacion.router, tags=["vinculacion"])
+api_router.include_router(roles.router, tags=["roles"])
+api_router.include_router(assignments.router, tags=["assignments"])
 
 # Health check endpoint
 @api_router.get("/health")
