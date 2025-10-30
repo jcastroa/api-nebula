@@ -36,7 +36,7 @@ async def create_assignment(
             raise HTTPException(status_code=404, detail="User not found")
 
         # Verificar que el consultorio existe
-        consultorio = ConsultorioService.get_consultorio_by_id(assignment_data.consultorio_id)
+        consultorio = ConsultorioService.get_consultorio_by_id(assignment_data.negocio_id)
         if not consultorio:
             raise HTTPException(status_code=404, detail="Business not found")
 
@@ -55,7 +55,7 @@ async def create_assignment(
 
         logger.info(
             f"Assignment created: User {assignment_data.usuario_id} -> "
-            f"Business {assignment_data.consultorio_id} by {current_user['username']}"
+            f"Business {assignment_data.negocio_id} by {current_user['username']}"
         )
 
         return AssignmentResponse(**assignment)

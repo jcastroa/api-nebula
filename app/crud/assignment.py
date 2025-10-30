@@ -117,9 +117,9 @@ class AssignmentCRUD(BaseCRUD):
                         query += " AND uc.usuario_id = %s"
                         params.append(filters['usuario_id'])
 
-                    if filters.get('consultorio_id'):
+                    if filters.get('negocio_id'):
                         query += " AND uc.consultorio_id = %s"
-                        params.append(filters['consultorio_id'])
+                        params.append(filters['negocio_id'])
 
                     if filters.get('estado'):
                         query += " AND uc.estado = %s"
@@ -146,11 +146,11 @@ class AssignmentCRUD(BaseCRUD):
                 cursor.execute("""
                     SELECT id FROM usuario_consultorios
                     WHERE usuario_id = %s AND consultorio_id = %s
-                """, (obj_in['usuario_id'], obj_in['consultorio_id']))
+                """, (obj_in['usuario_id'], obj_in['negocio_id']))
 
                 existing = cursor.fetchone()
                 if existing:
-                    logger.warning(f"User {obj_in['usuario_id']} already assigned to consultorio {obj_in['consultorio_id']}")
+                    logger.warning(f"User {obj_in['usuario_id']} already assigned to consultorio {obj_in['negocio_id']}")
                     return None
 
                 # Si es_principal=True, desmarcar otras asignaciones principales del usuario
@@ -168,7 +168,7 @@ class AssignmentCRUD(BaseCRUD):
                     VALUES (%s, %s, %s, %s, %s, %s)
                 """, (
                     obj_in['usuario_id'],
-                    obj_in['consultorio_id'],
+                    obj_in['negocio_id'],
                     obj_in['rol_id'],
                     obj_in.get('es_principal', False),
                     obj_in.get('fecha_inicio'),
@@ -312,9 +312,9 @@ class AssignmentCRUD(BaseCRUD):
                         query += " AND uc.usuario_id = %s"
                         params.append(filters['usuario_id'])
 
-                    if filters.get('consultorio_id'):
+                    if filters.get('negocio_id'):
                         query += " AND uc.consultorio_id = %s"
-                        params.append(filters['consultorio_id'])
+                        params.append(filters['negocio_id'])
 
                     if filters.get('estado'):
                         query += " AND uc.estado = %s"

@@ -27,7 +27,10 @@ router = APIRouter(prefix="/users")
 async def get_users(
     page: int = Query(1, ge=1, description="Page number (starts from 1)"),
     limit: int = Query(50, ge=1, le=1000, description="Max records to return"),
-    search: Optional[str] = Query(None, description="Search in username/email/name"),
+    username: Optional[str] = Query(None, description="Search in username"),
+    activo: Optional[bool] = Query(None, description="Search in activo"),
+    email: Optional[str] = Query(None, description="Search in email"),
+    rol_global: Optional[str] = Query(None, description="Search in rol global"),
     current_user: dict = Depends(get_current_user),
     user_crud: UserCRUD = Depends(get_user_crud)
 ):
@@ -40,8 +43,14 @@ async def get_users(
 
         # Preparar filtros
         filters = {}
-        if search:
-            filters['search'] = search.strip()
+        if username:
+            filters['username'] = username.strip()
+        if activo is not None:
+            filters['activo'] = activo
+        if email is not None:
+            filters['email'] = email.strip()
+        if rol_global is not None:
+            filters['rol_global'] = rol_global.strip()
 
         # Obtener usuarios y total
         users = await user_crud.get_multi(skip=skip, limit=limit, filters=filters)

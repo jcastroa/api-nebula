@@ -4,7 +4,7 @@
 
 """Schemas Pydantic para gestión de usuarios"""
 from pydantic import BaseModel, EmailStr, validator
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 
 class UserCreate(BaseModel):
@@ -12,8 +12,8 @@ class UserCreate(BaseModel):
     username: str
     email: EmailStr
     password: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
+    nombres: Optional[str] = None
+    apellidos: Optional[str] = None
     rol_global_id: Optional[int] = None
 
     @validator('username')
@@ -30,7 +30,7 @@ class UserCreate(BaseModel):
             raise ValueError('Password must be at least 8 characters')
         return v
 
-    @validator('first_name', 'last_name')
+    @validator('nombres', 'apellidos')
     def validate_names(cls, v):
         if v and len(v.strip()) == 0:
             return None
@@ -39,12 +39,12 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     """Schema para actualizar usuario"""
     email: Optional[EmailStr] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
+    nombres: Optional[str] = None
+    apellidos: Optional[str] = None
     is_active: Optional[bool] = None
     rol_global_id: Optional[int] = None
     
-    @validator('first_name', 'last_name')
+    @validator('nombres', 'apellidos')
     def validate_names(cls, v):
         if v and len(v.strip()) == 0:
             return None
@@ -55,13 +55,14 @@ class UserResponse(BaseModel):
     id: int
     username: str
     email: str
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
+    nombres: Optional[str] = None
+    apellidos: Optional[str] = None
     is_active: bool = True
     rol_global_id: Optional[int] = None
     rol_global_nombre: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    asignaciones: Optional[List[dict]] = []
     
     class Config:
         from_attributes = True
@@ -91,13 +92,13 @@ class UserListResponse(BaseModel):
 class AssignmentCreate(BaseModel):
     """Schema para crear asignación de usuario a negocio"""
     usuario_id: int
-    consultorio_id: int
+    negocio_id: int
     rol_id: int
     es_principal: bool = False
     fecha_inicio: Optional[str] = None
     fecha_fin: Optional[str] = None
 
-    @validator('usuario_id', 'consultorio_id', 'rol_id')
+    @validator('usuario_id', 'negocio_id', 'rol_id')
     def validate_ids(cls, v):
         if v <= 0:
             raise ValueError('ID debe ser mayor a 0')

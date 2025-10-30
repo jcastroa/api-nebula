@@ -529,34 +529,84 @@ class UserCRUD(BaseCRUD):
         filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """Obtener múltiples usuarios con filtros"""
+        import json
+        
         try:
             with get_db_connection() as conn:
                 cursor = conn.cursor(dictionary=True)
 
                 # Query base con JOIN a roles
                 query = """
-                    SELECT u.id, u.username, u.email, u.first_name, u.last_name,
-                           u.is_active, u.rol_global_id, r.nombre as rol_global_nombre,
-                           u.created_at, u.updated_at
+                    SELECT u.id, u.username, u.email, u.first_name as nombres, u.last_name as apellidos,
+                        u.is_active, u.rol_global_id, r.nombre as rol_global_nombre,
+                        u.created_at, u.updated_at,
+                        JSON_ARRAYAGG(
+                            IF(c.id IS NOT NULL,
+                                JSON_OBJECT(
+                                    'consultorio_id', c.id,
+                                    'consultorio_nombre', c.nombre
+                                ),
+                                NULL
+                            )
+                        ) as asignaciones
                     FROM users u
                     LEFT JOIN roles r ON u.rol_global_id = r.id_rol
-                    WHERE u.is_active = TRUE
+                    LEFT JOIN usuario_consultorios uc ON u.id = uc.usuario_id AND uc.estado = 'activo'
+                    LEFT JOIN consultorios c ON uc.consultorio_id = c.id
+                    WHERE 1=1
                 """
                 params = []
 
+                # Filtro de activo (por defecto True)
+                activo_value = filters.get('activo', True) if filters else True
+                query += " AND u.is_active = %s"
+                params.append(activo_value)
+
                 # Aplicar filtros
                 if filters:
-                    if filters.get('search'):
-                        search_term = f"%{filters['search']}%"
-                        query += " AND (u.username LIKE %s OR u.email LIKE %s OR u.first_name LIKE %s OR u.last_name LIKE %s)"
-                        params.extend([search_term, search_term, search_term, search_term])
+                    if filters.get('username'):
+                        username_term = f"%{filters['username']}%"
+                        query += " AND (u.username LIKE %s)"
+                        params.append(username_term)
+                    if filters.get('email'):
+                        email_term = f"%{filters['email']}%"
+                        query += " AND u.email = %s"
+                        params.append(email_term)
+                    if filters.get('rol_global'):
+                        rol_term = f"%{filters['rol_global']}%"
+                        query += " AND r.nombre = %s"
+                        params.append(rol_term)
 
+                # GROUP BY después de todos los filtros WHERE
+                query += " GROUP BY u.id, u.username, u.email, u.first_name, u.last_name, u.is_active, u.rol_global_id, r.nombre, u.created_at, u.updated_at"
+                
                 # Ordenar y paginar
                 query += " ORDER BY u.created_at DESC LIMIT %s OFFSET %s"
                 params.extend([limit, skip])
 
                 cursor.execute(query, params)
-                return cursor.fetchall()
+                users = cursor.fetchall()
+                
+                # Procesar asignaciones
+                result = []
+                for user in users:
+                    try:
+                        # Parsear JSON y filtrar nulls
+                        if user.get('asignaciones'):
+                            asignaciones_raw = json.loads(user['asignaciones'])
+                            user['asignaciones'] = [
+                                a for a in asignaciones_raw 
+                                if a is not None
+                            ]
+                        else:
+                            user['asignaciones'] = []
+                    except (json.JSONDecodeError, TypeError):
+                        logger.warning(f"Error parsing asignaciones for user {user.get('id')}")
+                        user['asignaciones'] = []
+                    
+                    result.append(user)
+                
+                return result
 
         except Exception as e:
             logger.error(f"Error getting users: {e}")
@@ -583,8 +633,8 @@ class UserCRUD(BaseCRUD):
                     obj_in['username'].lower().strip(),
                     obj_in['email'].lower().strip(),
                     password_hash,
-                    obj_in.get('first_name'),
-                    obj_in.get('last_name'),
+                    obj_in.get('nombres'),
+                    obj_in.get('apellidos'),
                     obj_in.get('rol_global_id')
                 ))
 
@@ -605,50 +655,81 @@ class UserCRUD(BaseCRUD):
     ) -> Optional[Dict[str, Any]]:
         """Actualizar usuario existente"""
         try:
+            # Verificar que el usuario existe ANTES del update
+            existing = await self.get_by_id(id)
+            logger.info(f"[update] Usuario antes del update: {existing}")
+            
+            if not existing:
+                logger.error(f"[update] Usuario {id} NO EXISTE en la BD")
+                return None
+            
             with get_db_connection() as conn:
-                cursor = conn.cursor(dictionary=True, buffered=True)
-                
-                # Construir query dinámicamente
+                cursor = conn.cursor()
+
                 fields = []
                 params = []
-                
-                # Campos actualizables
-                updateable_fields = ['email', 'first_name', 'last_name', 'is_active', 'rol_global_id']
-                
-                for field in updateable_fields:
-                    if field in obj_in and obj_in[field] is not None:
-                        if field == 'email':
-                            fields.append(f"{field} = %s")
-                            params.append(obj_in[field].lower().strip())
-                        elif field in ['first_name', 'last_name']:
-                            fields.append(f"{field} = %s")
-                            params.append(obj_in[field].strip().title() if obj_in[field] else None)
+
+                # Mapeo: clave en obj_in -> campo en BD
+                field_mapping = {
+                    'email': 'email',
+                    'nombres': 'first_name',
+                    'apellidos': 'last_name',
+                    'is_active': 'is_active',
+                    'rol_global_id': 'rol_global_id'
+                }
+
+                for input_key, db_field in field_mapping.items():
+
+                    if input_key in obj_in :
+                        
+                        if input_key == 'email':
+                            fields.append(f"{db_field} = %s")
+                            params.append(obj_in[input_key].lower().strip())
+                            
+                        elif input_key in ['nombres', 'apellidos']:
+                            # Limpieza y capitalización
+                            value = obj_in[input_key].strip()
+                            clean_value = " ".join(word.capitalize() for word in value.split())
+                            fields.append(f"{db_field} = %s")
+                            params.append(clean_value)
+                            
                         else:
-                            fields.append(f"{field} = %s")
-                            params.append(obj_in[field])
-                
+                            fields.append(f"{db_field} = %s")
+                            params.append(obj_in[input_key])
+
                 if not fields:
-                    # No hay campos para actualizar
-                    return await self.get(id)
-                
-                # Actualizar timestamp
-                fields.append("updated_at = CURRENT_TIMESTAMP")
-                
-                # Ejecutar update
+                    logger.info(f"[update] No fields to update for user {id}, returning current data.")
+                    return await self.get_by_id(id)
+
+                # Agregar timestamp de actualización
+                fields.append("updated_at = NOW()")
+
+                # Construir query final
                 query = f"UPDATE users SET {', '.join(fields)} WHERE id = %s"
                 params.append(id)
-                
+
+                logger.info(f"[update] Query: {query}")
+                logger.info(f"[update] Params: {params}")
+
                 cursor.execute(query, params)
+                logger.info(f"[update] Rowcount: {cursor.rowcount}")
+                
                 conn.commit()
-                
+
                 if cursor.rowcount > 0:
-                    return await self.get(id)
-                
-                return None
-                
+                    updated_user = await self.get_by_id(id)
+                    logger.info(f"[update] Usuario {id} actualizado correctamente.")
+                    return updated_user
+                else:
+                    logger.warning(f"[update] No se encontró usuario con id={id} para actualizar. Rowcount=0")
+                    still_exists = await self.get_by_id(id)
+                    logger.info(f"[update] Usuario después del update fallido: {still_exists}")
+                    return None
+
         except Exception as e:
-            logger.error(f"Error updating user {id}: {e}")
-            return None
+            logger.exception(f"[update] Error actualizando usuario {id}: {e}")
+            raise Exception(f"Error actualizando usuario {id}: {e}")
+
     
     async def delete(self, id: int) -> bool:
         """Eliminar usuario (soft delete)"""
@@ -672,7 +753,7 @@ class UserCRUD(BaseCRUD):
             with get_db_connection() as conn:
                 cursor = conn.cursor(dictionary=True, buffered=True)
                 
-                query = "SELECT COUNT(*) FROM users WHERE is_active = TRUE"
+                query = "SELECT COUNT(*) AS total FROM users WHERE is_active = TRUE"
                 params = []
 
                 if filters:
@@ -680,14 +761,20 @@ class UserCRUD(BaseCRUD):
                         search_term = f"%{filters['search']}%"
                         query += " AND (username LIKE %s OR email LIKE %s)"
                         params.extend([search_term, search_term])
-                
+
                 cursor.execute(query, params)
                 result = cursor.fetchone()
-                return result[0] if result else 0
-                
+
+                if result and "total" in result:
+                    return int(result["total"])
+                else:
+                    logger.warning(f"No se obtuvo resultado del count() con query: {query}")
+                    return 0
+
         except Exception as e:
-            logger.error(f"Error counting users: {e}")
-            return 0
+            logger.exception(f"Error counting users: {e}")
+            raise Exception(f"Database error while counting users: {e}")
+
     
     async def change_password(self, id: int, new_password: str) -> bool:
         """Cambiar contraseña del usuario"""
@@ -714,36 +801,95 @@ class UserCRUD(BaseCRUD):
             with get_db_connection() as conn:
                 cursor = conn.cursor(dictionary=True, buffered=True)
                 
-                query = "SELECT COUNT(*) FROM users WHERE username = %s"
+                query = "SELECT COUNT(*) AS total FROM users WHERE username = %s"
                 params = [username.lower().strip()]
                 
                 if exclude_id:
                     query += " AND id != %s"
                     params.append(exclude_id)
-                
+
+                # Log para depurar la consulta antes de ejecutarla
+                logger.debug(f"Ejecutando query: {query}")
+                logger.debug(f"Parámetros: {params}")
+
                 cursor.execute(query, params)
                 result = cursor.fetchone()
-                return result[0] > 0 if result else False
+
+                # Log del resultado de la consulta
+                logger.debug(f"Resultado fetchone(): {result}")
+
+                # Retornar el resultado (si result no es None)
+                if result and "total" in result:
+                    exists = result["total"] > 0
+                elif result:
+                    # Si COUNT(*) no tiene alias y MySQL devuelve tupla
+                    exists = list(result.values())[0] > 0
+                else:
+                    exists = False
+
+                logger.info(f"¿El username '{username}' existe?: {exists}")
+                return exists
+
         except Exception as e:
-            logger.error(f"Error checking username exists: {e}")
-            return True  # Asumir que existe en caso de error
+            logger.exception(f"Error verificando existencia de username '{username}': {e}")
+            raise Exception(f"Error verificando existencia del username '{username}': {e}")
+
     
     async def email_exists(self, email: str, exclude_id: Optional[int] = None) -> bool:
-        """Verificar si email ya existe"""
+        """Verificar si el email ya existe"""
         try:
             with get_db_connection() as conn:
                 cursor = conn.cursor(dictionary=True, buffered=True)
-                
-                query = "SELECT COUNT(*) FROM users WHERE email = %s"
+
+                query = "SELECT COUNT(*) AS total FROM users WHERE email = %s"
                 params = [email.lower().strip()]
-                
+
                 if exclude_id:
                     query += " AND id != %s"
                     params.append(exclude_id)
-                
+
+                logger.debug(f"Ejecutando query email_exists: {query}")
+                logger.debug(f"Parámetros: {params}")
+
                 cursor.execute(query, params)
                 result = cursor.fetchone()
-                return result[0] > 0 if result else False
+
+                # Depurar el resultado real
+                logger.debug(f"Resultado raw de la consulta: {result}")
+
+                # Manejo seguro del resultado
+                if result is None:
+                    logger.warning(f"No se obtuvo resultado para email '{email}'")
+                    return False  # No hay coincidencias
+
+                # MySQL devuelve {'total': 0} si dictionary=True
+                count = result.get("total") if isinstance(result, dict) else list(result.values())[0]
+                exists = count > 0
+
+                logger.info(f"¿El email '{email}' existe?: {exists}")
+                return exists
+
         except Exception as e:
-            logger.error(f"Error checking email exists: {e}")
-            return True  # Asumir que existe en caso de error
+            logger.exception(f"Error verificando existencia del email '{email}': {e}")
+            # ❌ Antes devolvías True siempre (mala práctica)
+            # ✅ Ahora devolvemos False, porque si hay error queremos permitir continuar,
+            # pero se loguea el problema para investigarlo.
+            raise Exception(f"Error verificando existencia del email '{email}': {e}")
+
+    async def get_by_id(self, id: int) -> Optional[Dict[str, Any]]:
+        """Obtener usuario por ID sin filtros de estado"""
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("""
+                    SELECT u.id, u.username, u.email, u.first_name, u.last_name,
+                        u.is_active, u.rol_global_id, r.nombre as rol_global_nombre,
+                        u.created_at, u.updated_at, u.ultimo_consultorio_activo
+                    FROM users u
+                    LEFT JOIN roles r ON u.rol_global_id = r.id_rol
+                    WHERE u.id = %s
+                """, (id,))
+                return cursor.fetchone()
+        except Exception as e:
+            logger.error(f"Error getting user {id}: {e}")
+            return None
