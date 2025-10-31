@@ -25,9 +25,10 @@ class UserCRUD(BaseCRUD):
                 cursor.execute("""
                     SELECT u.id, u.username, u.email, u.first_name, u.last_name,
                            u.is_active, u.rol_global_id, r.nombre as rol_global_nombre,
-                           u.created_at, u.updated_at, u.ultimo_consultorio_activo
+                           u.created_at, u.updated_at, u.ultimo_consultorio_activo, uc.consultorio_id AS consultorio_id_principal
                     FROM users u
                     LEFT JOIN roles r ON u.rol_global_id = r.id_rol
+                    LEFT JOIN usuario_consultorios uc ON uc.usuario_id = u.id AND uc.estado = 'activo' AND uc.es_principal = '1'
                     WHERE u.id = %s AND u.is_active = TRUE
                 """, (id,))
                 return cursor.fetchone()
@@ -221,7 +222,7 @@ class UserCRUD(BaseCRUD):
 
                 FROM users u
                 LEFT JOIN roles rg ON u.rol_global_id = rg.id_rol
-                 LEFT JOIN usuario_consultorios uc ON  uc.usuario_id = u.id  and uc.es_principal = 1
+                 LEFT JOIN usuario_consultorios uc ON  uc.usuario_id = u.id  and uc.es_principal = 1 AND uc.estado = 'activo'
                  LEFT JOIN consultorios cp ON cp.id = uc.consultorio_id
                 LEFT JOIN consultorios cu ON u.ultimo_consultorio_activo = cu.id
                 WHERE u.id = %s AND u.is_active = 1

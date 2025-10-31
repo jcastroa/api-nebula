@@ -5,12 +5,14 @@ Handles transaction logic between MariaDB and Firestore.
 
 from typing import Dict, Any, Optional
 from firebase_admin import firestore
-from app.core.logging import logger
+import logging
 from app.core.database import get_db_connection
 from app.services.firestore_service import FirestoreService
 import json
 import mysql.connector
 
+
+logger = logging.getLogger(__name__)
 
 class ChatbotConfiguracionService:
     """Service for managing chatbot configuration with dual persistence"""
@@ -71,7 +73,7 @@ class ChatbotConfiguracionService:
                 """
                 INSERT INTO chatbot_configuracion
                     (negocio_id, configuracion, prompt_completo, created_at, updated_at)
-                VALUES (%s, %s, %s, NOW(), NOW())
+                VALUES (%s, %s, %s, NOW(), NULL)
                 ON DUPLICATE KEY UPDATE
                     configuracion = VALUES(configuracion),
                     prompt_completo = VALUES(prompt_completo),

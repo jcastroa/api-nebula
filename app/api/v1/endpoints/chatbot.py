@@ -12,14 +12,14 @@ from app.schemas.chatbot import (
     ConfiguracionEstructurada
 )
 from app.services.chatbot_service import ChatbotConfiguracionService
-from app.services.firestore_service import FirestoreService
+from app.services.firestore_service import FirestoreService 
 from app.dependencies import get_current_user, get_firestore_service
-from app.core.logging import logger
+import logging
 from datetime import datetime
 
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
-
+logger = logging.getLogger(__name__)
 
 def get_chatbot_service(
     firestore_service: FirestoreService = Depends(get_firestore_service)
@@ -44,9 +44,8 @@ def get_negocio_id_from_user(current_user: Dict[str, Any]) -> int:
     """
     # Try different possible field names for consultorio/negocio ID
     negocio_id = (
-        current_user.get('consultorio_id') or
-        current_user.get('negocio_id') or
-        current_user.get('default_consultorio_id')
+        current_user.get('ultimo_consultorio_activo') or
+        current_user.get('consultorio_id_principal') 
     )
 
     if not negocio_id:
