@@ -78,11 +78,23 @@ class ServicioService:
             # Update Firestore document in 'negocios' collection
             doc_ref = self.db.collection('negocios').document(str(negocio_id))
 
-            # Use merge to update/create only the precios_cita field
-            doc_ref.set({
-                'precios_cita': precios_cita,
-                'updated_at': firestore.SERVER_TIMESTAMP
-            }, merge=True)
+            # Use update() to REPLACE the entire precios_cita field
+            # This ensures deleted services are removed from Firestore
+            try:
+                doc_ref.update({
+                    'precios_cita': precios_cita,
+                    'updated_at': firestore.SERVER_TIMESTAMP
+                })
+            except Exception as e:
+                # If document doesn't exist, create it with set()
+                if 'NOT_FOUND' in str(e) or 'not found' in str(e).lower():
+                    logger.info(f"Document not found for negocio_id {negocio_id}, creating new document")
+                    doc_ref.set({
+                        'precios_cita': precios_cita,
+                        'updated_at': firestore.SERVER_TIMESTAMP
+                    })
+                else:
+                    raise
 
             logger.info(f"Firestore sync successful for negocio_id {negocio_id}")
 
