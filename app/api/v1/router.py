@@ -6,7 +6,7 @@
 from fastapi import APIRouter
 from datetime import datetime
 
-from app.api.v1.endpoints import auth, users, admin, negocios, vinculacion, roles, assignments, chatbot, servicios
+from app.api.v1.endpoints import auth, users, admin, negocios, vinculacion, roles, assignments, chatbot, servicios, medios_pago
 from app.core.database import get_db_connection
 from app.core.redis_client import redis_client
 from app.config import settings
@@ -24,6 +24,7 @@ api_router.include_router(roles.router, tags=["roles"])
 api_router.include_router(assignments.router, tags=["assignments"])
 api_router.include_router(chatbot.router, tags=["chatbot"])
 api_router.include_router(servicios.router, tags=["servicios"])
+api_router.include_router(medios_pago.router, tags=["medios_pago"])
 
 # Health check endpoint
 @api_router.get("/health")
