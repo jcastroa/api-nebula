@@ -143,8 +143,8 @@ class ChatbotConfiguracionResponse(BaseModel):
     negocio_id: int = Field(..., description="Business/consultorio ID")
     configuracion: ConfiguracionEstructurada = Field(..., description="Structured configuration")
     prompt_completo: str = Field(..., description="Complete prompt")
-    created_at: datetime = Field(..., description="Creation timestamp")
-    updated_at: datetime = Field(..., description="Last update timestamp")
+    created_at: Optional[datetime] = Field(None, description="Creation timestamp")
+    updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
 
     class Config:
         from_attributes = True

@@ -73,7 +73,7 @@ class ChatbotConfiguracionService:
                 """
                 INSERT INTO chatbot_configuracion
                     (negocio_id, configuracion, prompt_completo, created_at, updated_at)
-                VALUES (%s, %s, %s, NOW(), NULL)
+                VALUES (%s, %s, %s, NOW(), NOW())
                 ON DUPLICATE KEY UPDATE
                     configuracion = VALUES(configuracion),
                     prompt_completo = VALUES(prompt_completo),
