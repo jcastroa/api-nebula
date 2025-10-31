@@ -16,7 +16,7 @@ class ServicioCreateRequest(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=100, description="Service name")
     descripcion: Optional[str] = Field(None, max_length=1000, description="Service description")
     duracion_minutos: int = Field(30, ge=1, le=1440, description="Service duration in minutes (1-1440)")
-    precio: Decimal = Field(..., ge=0, max_digits=10, decimal_places=2, description="Service price")
+    precio: Decimal = Field(..., ge=0, description="Service price")
     activo: bool = Field(True, description="Service active status")
 
     @field_validator('nombre')
@@ -30,9 +30,24 @@ class ServicioCreateRequest(BaseModel):
     @field_validator('precio')
     @classmethod
     def validate_precio(cls, v: Decimal) -> Decimal:
-        """Validate price is non-negative"""
+        """Validate price is non-negative and has correct precision"""
         if v < 0:
             raise ValueError('El precio no puede ser negativo')
+
+        # Validate max_digits (10 total digits)
+        # Convert to string to check total digits
+        price_str = str(v)
+        # Remove decimal point and minus sign for counting
+        digits_only = price_str.replace('.', '').replace('-', '')
+        if len(digits_only) > 10:
+            raise ValueError('El precio no puede tener más de 10 dígitos en total')
+
+        # Validate decimal_places (2 decimal places)
+        if '.' in price_str:
+            decimal_part = price_str.split('.')[1]
+            if len(decimal_part) > 2:
+                raise ValueError('El precio no puede tener más de 2 decimales')
+
         return v
 
 
@@ -41,7 +56,7 @@ class ServicioUpdateRequest(BaseModel):
     nombre: Optional[str] = Field(None, min_length=1, max_length=100, description="Service name")
     descripcion: Optional[str] = Field(None, max_length=1000, description="Service description")
     duracion_minutos: Optional[int] = Field(None, ge=1, le=1440, description="Service duration in minutes")
-    precio: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2, description="Service price")
+    precio: Optional[Decimal] = Field(None, ge=0, description="Service price")
     activo: Optional[bool] = Field(None, description="Service active status")
 
     @field_validator('nombre')
@@ -55,9 +70,25 @@ class ServicioUpdateRequest(BaseModel):
     @field_validator('precio')
     @classmethod
     def validate_precio(cls, v: Optional[Decimal]) -> Optional[Decimal]:
-        """Validate price is non-negative if provided"""
-        if v is not None and v < 0:
+        """Validate price is non-negative and has correct precision if provided"""
+        if v is None:
+            return v
+
+        if v < 0:
             raise ValueError('El precio no puede ser negativo')
+
+        # Validate max_digits (10 total digits)
+        price_str = str(v)
+        digits_only = price_str.replace('.', '').replace('-', '')
+        if len(digits_only) > 10:
+            raise ValueError('El precio no puede tener más de 10 dígitos en total')
+
+        # Validate decimal_places (2 decimal places)
+        if '.' in price_str:
+            decimal_part = price_str.split('.')[1]
+            if len(decimal_part) > 2:
+                raise ValueError('El precio no puede tener más de 2 decimales')
+
         return v
 
 
