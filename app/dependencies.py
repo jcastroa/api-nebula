@@ -4,6 +4,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional, Dict, Any
 
 from app.services.auth_service import AuthService
+from app.services.firestore_service import FirestoreService
 from app.crud.user import UserCRUD
 from app.crud.session import SessionCRUD
 from app.crud.assignment import AssignmentCRUD
@@ -14,6 +15,7 @@ security = HTTPBearer(auto_error=False)
 
 # Singletons
 _auth_service = None
+_firestore_service = None
 _user_crud = None
 _session_crud = None
 _assignment_crud = None
@@ -24,6 +26,12 @@ def get_auth_service() -> AuthService:
     if _auth_service is None:
         _auth_service = AuthService()
     return _auth_service
+
+def get_firestore_service() -> FirestoreService:
+    global _firestore_service
+    if _firestore_service is None:
+        _firestore_service = FirestoreService()
+    return _firestore_service
 
 def get_user_crud() -> UserCRUD:
     global _user_crud
