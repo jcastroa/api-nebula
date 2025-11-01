@@ -217,13 +217,16 @@ class HorarioService:
             )
             consultorio_result = cursor.fetchone()
 
-            # Default intervalo_citas if not found
+            # Default intervalo_citas if not found or NULL
             intervalo_citas = 30
             if consultorio_result:
                 if isinstance(consultorio_result, tuple):
-                    intervalo_citas = consultorio_result[0] or 30
+                    intervalo_citas = consultorio_result[0] if consultorio_result[0] is not None else 30
                 else:
-                    intervalo_citas = consultorio_result.get('intervalo_citas', 30)
+                    # Get value from dict, use 30 if None or not found
+                    intervalo_citas = consultorio_result.get('intervalo_citas')
+                    if intervalo_citas is None:
+                        intervalo_citas = 30
 
             # Initialize all days
             dias_laborables = {
