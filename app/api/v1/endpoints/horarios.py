@@ -23,7 +23,7 @@ from app.services.firestore_service import FirestoreService
 from app.dependencies import get_current_user, get_firestore_service
 
 
-router = APIRouter(prefix="/configuracion/horarios", tags=["horarios"])
+router = APIRouter(prefix="/horarios", tags=["horarios"])
 logger = logging.getLogger(__name__)
 
 
@@ -94,7 +94,7 @@ async def obtener_horarios(
         negocio_id = get_negocio_id_from_user(current_user)
 
         logger.info(
-            f"GET /configuracion/horarios/ - User: {current_user.get('id')}, "
+            f"GET /horarios/ - User: {current_user.get('id')}, "
             f"Negocio: {negocio_id}, IP: {request.client.host}"
         )
 
@@ -177,7 +177,7 @@ async def guardar_horarios(
         user_id = current_user.get('id')
 
         logger.info(
-            f"POST /configuracion/horarios/ - User: {user_id}, "
+            f"POST /horarios/ - User: {user_id}, "
             f"Negocio: {negocio_id}, IP: {request.client.host}"
         )
 
@@ -318,7 +318,7 @@ async def listar_excepciones(
         negocio_id = get_negocio_id_from_user(current_user)
 
         logger.info(
-            f"GET /configuracion/horarios/excepciones - User: {current_user.get('id')}, "
+            f"GET /horarios/excepciones - User: {current_user.get('id')}, "
             f"Negocio: {negocio_id}, IP: {request.client.host}"
         )
 
@@ -404,7 +404,7 @@ async def crear_excepcion(
         user_id = current_user.get('id')
 
         logger.info(
-            f"POST /configuracion/horarios/excepciones - User: {user_id}, "
+            f"POST /horarios/excepciones - User: {user_id}, "
             f"Negocio: {negocio_id}, IP: {request.client.host}"
         )
 
@@ -512,7 +512,7 @@ async def eliminar_excepcion(
         user_id = current_user.get('id')
 
         logger.info(
-            f"DELETE /configuracion/horarios/excepciones/{excepcion_id} - User: {user_id}, "
+            f"DELETE /horarios/excepciones/{excepcion_id} - User: {user_id}, "
             f"Negocio: {negocio_id}, IP: {request.client.host}"
         )
 
