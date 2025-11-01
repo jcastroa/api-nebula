@@ -489,95 +489,101 @@ class HorarioService:
             logger.error(f"Error deleting exception in MariaDB: {str(e)}")
             raise
 
-    async def sync_excepciones_to_firestore(
+    async def sync_excepcion_to_firestore(
         self,
+        excepcion_id: int,
         negocio_id: int,
-        excepciones: List[Dict[str, Any]]
+        tipo: str,
+        fecha_inicio: date,
+        fecha_fin: Optional[date],
+        motivo: str
     ) -> None:
         """
-        Sync all exceptions to Firestore.
-        Creates/updates the document in 'dias_no_laborales' collection.
+        Sync a single exception to Firestore.
+        Creates/updates a document in 'dias_no_laborales' collection using MySQL ID.
 
         Structure in Firestore:
-        dias_no_laborales/{negocio_id}/
-          "2024-12-25": {
+        dias_no_laborales/{excepcion_id}/
+          {
             "fecha": "2024-12-25",
             "negocio_id": 123,
             "nombre": "feriado - Navidad"
           }
 
         Args:
+            excepcion_id: Exception ID from MySQL
             negocio_id: Business ID
-            excepciones: List of exception dictionaries with tipo, fecha_inicio, fecha_fin, motivo
+            tipo: Exception type
+            fecha_inicio: Start date
+            fecha_fin: End date (optional)
+            motivo: Reason for exception
 
         Raises:
             Exception: If Firestore operation fails
         """
         try:
-            logger.info(f"Syncing {len(excepciones)} excepciones to Firestore for negocio_id {negocio_id}")
+            logger.info(f"Syncing excepcion {excepcion_id} to Firestore for negocio_id {negocio_id}")
+
+            # Create nombre: "tipo - motivo"
+            nombre = f"{tipo} - {motivo}"
+
+            # Convert to date if it's a datetime
+            if hasattr(fecha_inicio, 'date'):
+                fecha_inicio = fecha_inicio.date()
+
+            # If no fecha_fin, use fecha_inicio
+            if not fecha_fin:
+                fecha_fin = fecha_inicio
+            elif hasattr(fecha_fin, 'date'):
+                fecha_fin = fecha_fin.date()
+
+            # Format date as ISO string (YYYY-MM-DD)
+            fecha_str = fecha_inicio.strftime('%Y-%m-%d')
 
             # Prepare data for Firestore
-            firestore_data = {}
-
-            for exc in excepciones:
-                tipo = exc.get('tipo', '')
-                fecha_inicio = exc.get('fecha_inicio')
-                fecha_fin = exc.get('fecha_fin')
-                motivo = exc.get('motivo', '')
-
-                # Create nombre: "tipo - motivo"
-                nombre = f"{tipo} - {motivo}"
-
-                # Handle date range - create entry for each day
-                if fecha_inicio:
-                    # Convert to date if it's a datetime
-                    if hasattr(fecha_inicio, 'date'):
-                        fecha_inicio = fecha_inicio.date()
-
-                    # If no fecha_fin, use fecha_inicio
-                    if not fecha_fin:
-                        fecha_fin = fecha_inicio
-                    elif hasattr(fecha_fin, 'date'):
-                        fecha_fin = fecha_fin.date()
-
-                    # Create entries for all dates in the range
-                    current_date = fecha_inicio
-                    while current_date <= fecha_fin:
-                        fecha_key = current_date.strftime('%Y-%m-%d')
-                        firestore_data[fecha_key] = {
-                            'fecha': fecha_key,
-                            'negocio_id': negocio_id,
-                            'nombre': nombre
-                        }
-                        # Move to next day
-                        current_date = current_date + timedelta(days=1)
+            firestore_data = {
+                'fecha': fecha_str,
+                'negocio_id': negocio_id,
+                'nombre': nombre,
+                'updated_at': firestore.SERVER_TIMESTAMP
+            }
 
             # Update Firestore document in 'dias_no_laborales' collection
-            doc_ref = self.db.collection('dias_no_laborales').document(str(negocio_id))
+            # Use the MySQL ID as the document ID
+            doc_ref = self.db.collection('dias_no_laborales').document(str(excepcion_id))
+            doc_ref.set(firestore_data)
 
-            # Replace the entire document with the new data
-            # This ensures deleted exceptions are removed from Firestore
-            try:
-                if firestore_data:
-                    doc_ref.set({
-                        **firestore_data,
-                        'updated_at': firestore.SERVER_TIMESTAMP
-                    })
-                else:
-                    # If no exceptions, delete the document or set empty
-                    doc_ref.set({
-                        'updated_at': firestore.SERVER_TIMESTAMP
-                    })
-
-                logger.info(f"Firestore sync successful for excepciones, negocio_id {negocio_id}")
-
-            except Exception as e:
-                logger.error(f"Error updating Firestore document: {str(e)}")
-                raise
+            logger.info(f"Firestore sync successful for excepcion_id {excepcion_id}")
 
         except Exception as e:
-            logger.error(f"Firestore sync failed for excepciones, negocio_id {negocio_id}: {str(e)}")
-            raise Exception(f"Error al sincronizar excepciones con Firestore: {str(e)}")
+            logger.error(f"Firestore sync failed for excepcion_id {excepcion_id}: {str(e)}")
+            raise Exception(f"Error al sincronizar excepción con Firestore: {str(e)}")
+
+    async def delete_excepcion_from_firestore(
+        self,
+        excepcion_id: int
+    ) -> None:
+        """
+        Delete an exception from Firestore.
+
+        Args:
+            excepcion_id: Exception ID from MySQL
+
+        Raises:
+            Exception: If Firestore operation fails
+        """
+        try:
+            logger.info(f"Deleting excepcion {excepcion_id} from Firestore")
+
+            # Delete document from 'dias_no_laborales' collection
+            doc_ref = self.db.collection('dias_no_laborales').document(str(excepcion_id))
+            doc_ref.delete()
+
+            logger.info(f"Firestore delete successful for excepcion_id {excepcion_id}")
+
+        except Exception as e:
+            logger.error(f"Firestore delete failed for excepcion_id {excepcion_id}: {str(e)}")
+            raise Exception(f"Error al eliminar excepción de Firestore: {str(e)}")
 
 
 # Dependency injection helper

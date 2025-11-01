@@ -448,13 +448,17 @@ async def crear_excepcion(
         # STEP 2: Firestore Sync
         # ==========================================
         try:
-            # Get all active exceptions for this negocio
-            all_excepciones = await horario_service.get_excepciones_from_mariadb(cursor, negocio_id)
+            # Sync this specific exception to Firestore using its MySQL ID
+            await horario_service.sync_excepcion_to_firestore(
+                excepcion_id=result['id'],
+                negocio_id=negocio_id,
+                tipo=payload.tipo.value,
+                fecha_inicio=payload.fechaInicio,
+                fecha_fin=payload.fechaFin,
+                motivo=payload.motivo
+            )
 
-            # Sync to Firestore
-            await horario_service.sync_excepciones_to_firestore(negocio_id, all_excepciones)
-
-            logger.info(f"Firestore sync successful for excepciones, negocio_id {negocio_id}")
+            logger.info(f"Firestore sync successful for excepcion_id {result['id']}")
 
         except Exception as firestore_error:
             # Firestore failed - ROLLBACK MariaDB
@@ -592,13 +596,10 @@ async def eliminar_excepcion(
         # STEP 2: Firestore Sync
         # ==========================================
         try:
-            # Get all active exceptions (excluding the deleted one)
-            all_excepciones = await horario_service.get_excepciones_from_mariadb(cursor, negocio_id)
+            # Delete this specific exception from Firestore using its MySQL ID
+            await horario_service.delete_excepcion_from_firestore(excepcion_id)
 
-            # Sync to Firestore (will remove deleted exception)
-            await horario_service.sync_excepciones_to_firestore(negocio_id, all_excepciones)
-
-            logger.info(f"Firestore sync successful for excepciones, negocio_id {negocio_id}")
+            logger.info(f"Firestore delete successful for excepcion_id {excepcion_id}")
 
         except Exception as firestore_error:
             # Firestore failed - ROLLBACK MariaDB
