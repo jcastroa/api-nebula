@@ -127,13 +127,13 @@ class HorarioService:
     ) -> None:
         """
         Sync business hours to Firestore.
-        Updates the 'horarios' and 'intervalo_citas' fields in the negocios collection.
+        Updates the 'horarios', 'intervalo_citas', and 'duracion_cita' fields in the negocios collection.
         Only saves days that have configured hours (non-empty arrays).
 
         Args:
             negocio_id: Business ID
             horarios: Business hours per day
-            intervalo_citas: Appointment interval in minutes
+            intervalo_citas: Appointment interval in minutes (also used for duracion_cita)
 
         Raises:
             Exception: If Firestore operation fails
@@ -156,6 +156,7 @@ class HorarioService:
                 doc_ref.update({
                     'horarios': firestore_horarios,
                     'intervalo_citas': intervalo_citas,
+                    'duracion_cita': intervalo_citas,
                     'updated_at': firestore.SERVER_TIMESTAMP
                 })
             except Exception as e:
@@ -165,6 +166,7 @@ class HorarioService:
                     doc_ref.set({
                         'horarios': firestore_horarios,
                         'intervalo_citas': intervalo_citas,
+                        'duracion_cita': intervalo_citas,
                         'updated_at': firestore.SERVER_TIMESTAMP
                     })
                 else:
