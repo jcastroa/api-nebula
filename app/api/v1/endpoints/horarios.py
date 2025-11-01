@@ -23,7 +23,7 @@ from app.services.firestore_service import FirestoreService
 from app.dependencies import get_current_user, get_firestore_service
 
 
-router = APIRouter(tags=["horarios"])
+router = APIRouter(prefix="/configuracion/horarios", tags=["horarios"])
 logger = logging.getLogger(__name__)
 
 
@@ -68,13 +68,12 @@ def get_negocio_id_from_user(current_user: Dict[str, Any]) -> int:
 # ===== Horarios Endpoints =====
 
 @router.get(
-    "/negocios/{codigo_negocio}/horarios",
+    "/",
     response_model=HorariosResponse,
     summary="Obtener horarios de atención",
     description="Obtiene la configuración de horarios de atención del consultorio del usuario autenticado."
 )
 async def obtener_horarios(
-    codigo_negocio: str,
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
     horario_service: HorarioService = Depends(get_horario_service)
@@ -91,11 +90,11 @@ async def obtener_horarios(
     - 500: Internal server error
     """
     try:
-        # Get negocio_id from current user (ignoring codigo_negocio parameter)
+        # Get negocio_id from current user
         negocio_id = get_negocio_id_from_user(current_user)
 
         logger.info(
-            f"GET /negocios/{codigo_negocio}/horarios - User: {current_user.get('id')}, "
+            f"GET /configuracion/horarios/ - User: {current_user.get('id')}, "
             f"Negocio: {negocio_id}, IP: {request.client.host}"
         )
 
@@ -136,7 +135,7 @@ async def obtener_horarios(
 
 
 @router.post(
-    "/negocios/{codigo_negocio}/horarios",
+    "/",
     response_model=HorariosSaveResponse,
     summary="Guardar horarios de atención",
     description=(
@@ -146,7 +145,6 @@ async def obtener_horarios(
     )
 )
 async def guardar_horarios(
-    codigo_negocio: str,
     payload: HorariosCreateRequest,
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
@@ -179,7 +177,7 @@ async def guardar_horarios(
         user_id = current_user.get('id')
 
         logger.info(
-            f"POST /negocios/{codigo_negocio}/horarios - User: {user_id}, "
+            f"POST /configuracion/horarios/ - User: {user_id}, "
             f"Negocio: {negocio_id}, IP: {request.client.host}"
         )
 
@@ -294,13 +292,12 @@ async def guardar_horarios(
 # ===== Excepciones Endpoints =====
 
 @router.get(
-    "/negocios/{codigo_negocio}/horarios/excepciones",
+    "/excepciones",
     response_model=ExcepcionesListResponse,
     summary="Listar excepciones",
     description="Obtiene la lista de excepciones (días no laborables) del consultorio."
 )
 async def listar_excepciones(
-    codigo_negocio: str,
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
     horario_service: HorarioService = Depends(get_horario_service)
@@ -321,7 +318,7 @@ async def listar_excepciones(
         negocio_id = get_negocio_id_from_user(current_user)
 
         logger.info(
-            f"GET /negocios/{codigo_negocio}/horarios/excepciones - User: {current_user.get('id')}, "
+            f"GET /configuracion/horarios/excepciones - User: {current_user.get('id')}, "
             f"Negocio: {negocio_id}, IP: {request.client.host}"
         )
 
@@ -365,7 +362,7 @@ async def listar_excepciones(
 
 
 @router.post(
-    "/negocios/{codigo_negocio}/horarios/excepciones",
+    "/excepciones",
     response_model=ExcepcionSaveResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear excepción",
@@ -375,7 +372,6 @@ async def listar_excepciones(
     )
 )
 async def crear_excepcion(
-    codigo_negocio: str,
     payload: ExcepcionCreateRequest,
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
@@ -408,7 +404,7 @@ async def crear_excepcion(
         user_id = current_user.get('id')
 
         logger.info(
-            f"POST /negocios/{codigo_negocio}/horarios/excepciones - User: {user_id}, "
+            f"POST /configuracion/horarios/excepciones - User: {user_id}, "
             f"Negocio: {negocio_id}, IP: {request.client.host}"
         )
 
@@ -486,13 +482,12 @@ async def crear_excepcion(
 
 
 @router.delete(
-    "/negocios/{codigo_negocio}/horarios/excepciones/{excepcion_id}",
+    "/excepciones/{excepcion_id}",
     response_model=ExcepcionDeleteResponse,
     summary="Eliminar excepción",
     description="Elimina (soft delete) una excepción existente."
 )
 async def eliminar_excepcion(
-    codigo_negocio: str,
     excepcion_id: int,
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
@@ -517,7 +512,7 @@ async def eliminar_excepcion(
         user_id = current_user.get('id')
 
         logger.info(
-            f"DELETE /negocios/{codigo_negocio}/horarios/excepciones/{excepcion_id} - User: {user_id}, "
+            f"DELETE /configuracion/horarios/excepciones/{excepcion_id} - User: {user_id}, "
             f"Negocio: {negocio_id}, IP: {request.client.host}"
         )
 
