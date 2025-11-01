@@ -137,6 +137,14 @@ class ExcepcionCreateRequest(BaseModel):
     fechaFin: Optional[date] = Field(None, description="End date (YYYY-MM-DD), optional for single day")
     motivo: str = Field(..., min_length=1, max_length=500, description="Reason for the exception")
 
+    @field_validator('fechaFin', mode='before')
+    @classmethod
+    def validate_fecha_fin(cls, v):
+        """Convert empty string to None for optional date field"""
+        if v == "" or v is None:
+            return None
+        return v
+
     @field_validator('motivo')
     @classmethod
     def validate_motivo(cls, v: str) -> str:
