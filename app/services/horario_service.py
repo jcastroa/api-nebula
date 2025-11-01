@@ -100,7 +100,7 @@ class HorarioService:
             cursor.execute(
                 """
                 UPDATE consultorios
-                SET intervalo_citas = %s, actualizado_por = %s, fecha_actualizacion = NOW()
+                 SET intervalo_citas = %s, updated_by = %s, updated_at = NOW()
                 WHERE id = %s
                 """,
                 (intervalo_citas, user_id, negocio_id)
