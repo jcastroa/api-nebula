@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional, List
 from firebase_admin import firestore
 import logging
 import mysql.connector
-from datetime import date
+from datetime import date, timedelta
 from app.services.firestore_service import FirestoreService
 
 
@@ -128,6 +128,7 @@ class HorarioService:
         """
         Sync business hours to Firestore.
         Updates the 'horarios' and 'intervalo_citas' fields in the negocios collection.
+        Only saves days that have configured hours (non-empty arrays).
 
         Args:
             negocio_id: Business ID
@@ -143,10 +144,12 @@ class HorarioService:
             # Update Firestore document in 'negocios' collection
             doc_ref = self.db.collection('negocios').document(str(negocio_id))
 
-            # Prepare horarios for Firestore (convert list of dicts to proper format)
+            # Prepare horarios for Firestore - only include days with configured hours
             firestore_horarios = {}
             for dia, rangos in horarios.items():
-                firestore_horarios[dia] = rangos
+                # Only add days that have at least one time range
+                if rangos and len(rangos) > 0:
+                    firestore_horarios[dia] = rangos
 
             # Update or create document
             try:
@@ -480,6 +483,96 @@ class HorarioService:
         except Exception as e:
             logger.error(f"Error deleting exception in MariaDB: {str(e)}")
             raise
+
+    async def sync_excepciones_to_firestore(
+        self,
+        negocio_id: int,
+        excepciones: List[Dict[str, Any]]
+    ) -> None:
+        """
+        Sync all exceptions to Firestore.
+        Creates/updates the document in 'dias_no_laborales' collection.
+
+        Structure in Firestore:
+        dias_no_laborales/{negocio_id}/
+          "2024-12-25": {
+            "fecha": "2024-12-25",
+            "negocio_id": 123,
+            "nombre": "feriado - Navidad"
+          }
+
+        Args:
+            negocio_id: Business ID
+            excepciones: List of exception dictionaries with tipo, fecha_inicio, fecha_fin, motivo
+
+        Raises:
+            Exception: If Firestore operation fails
+        """
+        try:
+            logger.info(f"Syncing {len(excepciones)} excepciones to Firestore for negocio_id {negocio_id}")
+
+            # Prepare data for Firestore
+            firestore_data = {}
+
+            for exc in excepciones:
+                tipo = exc.get('tipo', '')
+                fecha_inicio = exc.get('fecha_inicio')
+                fecha_fin = exc.get('fecha_fin')
+                motivo = exc.get('motivo', '')
+
+                # Create nombre: "tipo - motivo"
+                nombre = f"{tipo} - {motivo}"
+
+                # Handle date range - create entry for each day
+                if fecha_inicio:
+                    # Convert to date if it's a datetime
+                    if hasattr(fecha_inicio, 'date'):
+                        fecha_inicio = fecha_inicio.date()
+
+                    # If no fecha_fin, use fecha_inicio
+                    if not fecha_fin:
+                        fecha_fin = fecha_inicio
+                    elif hasattr(fecha_fin, 'date'):
+                        fecha_fin = fecha_fin.date()
+
+                    # Create entries for all dates in the range
+                    current_date = fecha_inicio
+                    while current_date <= fecha_fin:
+                        fecha_key = current_date.strftime('%Y-%m-%d')
+                        firestore_data[fecha_key] = {
+                            'fecha': fecha_key,
+                            'negocio_id': negocio_id,
+                            'nombre': nombre
+                        }
+                        # Move to next day
+                        current_date = current_date + timedelta(days=1)
+
+            # Update Firestore document in 'dias_no_laborales' collection
+            doc_ref = self.db.collection('dias_no_laborales').document(str(negocio_id))
+
+            # Replace the entire document with the new data
+            # This ensures deleted exceptions are removed from Firestore
+            try:
+                if firestore_data:
+                    doc_ref.set({
+                        **firestore_data,
+                        'updated_at': firestore.SERVER_TIMESTAMP
+                    })
+                else:
+                    # If no exceptions, delete the document or set empty
+                    doc_ref.set({
+                        'updated_at': firestore.SERVER_TIMESTAMP
+                    })
+
+                logger.info(f"Firestore sync successful for excepciones, negocio_id {negocio_id}")
+
+            except Exception as e:
+                logger.error(f"Error updating Firestore document: {str(e)}")
+                raise
+
+        except Exception as e:
+            logger.error(f"Firestore sync failed for excepciones, negocio_id {negocio_id}: {str(e)}")
+            raise Exception(f"Error al sincronizar excepciones con Firestore: {str(e)}")
 
 
 # Dependency injection helper

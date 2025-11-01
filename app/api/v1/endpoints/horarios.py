@@ -397,6 +397,7 @@ async def crear_excepcion(
     - 500: Internal server error
     """
     conn = None
+    mariadb_success = False
 
     try:
         # Get negocio_id and user_id
@@ -441,8 +442,36 @@ async def crear_excepcion(
         )
 
         logger.info(f"Exception created in MariaDB: id={result['id']}")
+        mariadb_success = True
 
-        # Commit transaction
+        # ==========================================
+        # STEP 2: Firestore Sync
+        # ==========================================
+        try:
+            # Get all active exceptions for this negocio
+            all_excepciones = await horario_service.get_excepciones_from_mariadb(cursor, negocio_id)
+
+            # Sync to Firestore
+            await horario_service.sync_excepciones_to_firestore(negocio_id, all_excepciones)
+
+            logger.info(f"Firestore sync successful for excepciones, negocio_id {negocio_id}")
+
+        except Exception as firestore_error:
+            # Firestore failed - ROLLBACK MariaDB
+            logger.error(f"Firestore sync failed: {str(firestore_error)}")
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            logger.warning(f"MariaDB transaction rolled back for negocio_id {negocio_id}")
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error al sincronizar con Firestore. La transacción ha sido revertida."
+            )
+
+        # ==========================================
+        # STEP 3: Commit if both operations succeeded
+        # ==========================================
         conn.commit()
         cursor.close()
         conn.close()
@@ -460,8 +489,9 @@ async def crear_excepcion(
 
     except mysql.connector.Error as db_error:
         logger.error(f"MariaDB operation failed: {str(db_error)}")
-        if conn:
+        if conn and mariadb_success:
             conn.rollback()
+        if conn:
             conn.close()
 
         raise HTTPException(
@@ -471,8 +501,9 @@ async def crear_excepcion(
 
     except Exception as e:
         logger.error(f"Error creating exception: {str(e)}", exc_info=True)
-        if conn:
+        if conn and mariadb_success:
             conn.rollback()
+        if conn:
             conn.close()
 
         raise HTTPException(
@@ -506,6 +537,7 @@ async def eliminar_excepcion(
     - 500: Internal server error
     """
     conn = None
+    mariadb_success = False
 
     try:
         negocio_id = get_negocio_id_from_user(current_user)
@@ -554,8 +586,36 @@ async def eliminar_excepcion(
             )
 
         logger.info(f"Exception soft deleted in MariaDB: id={excepcion_id}")
+        mariadb_success = True
 
-        # Commit
+        # ==========================================
+        # STEP 2: Firestore Sync
+        # ==========================================
+        try:
+            # Get all active exceptions (excluding the deleted one)
+            all_excepciones = await horario_service.get_excepciones_from_mariadb(cursor, negocio_id)
+
+            # Sync to Firestore (will remove deleted exception)
+            await horario_service.sync_excepciones_to_firestore(negocio_id, all_excepciones)
+
+            logger.info(f"Firestore sync successful for excepciones, negocio_id {negocio_id}")
+
+        except Exception as firestore_error:
+            # Firestore failed - ROLLBACK MariaDB
+            logger.error(f"Firestore sync failed: {str(firestore_error)}")
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            logger.warning(f"MariaDB transaction rolled back for negocio_id {negocio_id}")
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error al sincronizar con Firestore. La transacción ha sido revertida."
+            )
+
+        # ==========================================
+        # STEP 3: Commit if both operations succeeded
+        # ==========================================
         conn.commit()
         cursor.close()
         conn.close()
@@ -571,8 +631,9 @@ async def eliminar_excepcion(
 
     except Exception as e:
         logger.error(f"Error deleting exception: {str(e)}", exc_info=True)
-        if conn:
+        if conn and mariadb_success:
             conn.rollback()
+        if conn:
             conn.close()
 
         raise HTTPException(
