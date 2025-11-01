@@ -75,6 +75,16 @@ class PromocionCreateRequest(BaseModel):
 
         return v
 
+    @field_validator('fecha_inicio')
+    @classmethod
+    def validate_fecha_inicio(cls, v: date) -> date:
+        """Validate start date is not in the past"""
+        from datetime import date as dt_date
+        today = dt_date.today()
+        if v < today:
+            raise ValueError('La fecha de inicio no puede ser anterior a hoy')
+        return v
+
     @field_validator('fecha_fin')
     @classmethod
     def validate_fecha_fin(cls, v: date, info) -> date:
@@ -138,6 +148,19 @@ class PromocionUpdateRequest(BaseModel):
             if len(decimal_part) > 2:
                 raise ValueError('El valor del descuento no puede tener más de 2 decimales')
 
+        return v
+
+    @field_validator('fecha_inicio')
+    @classmethod
+    def validate_fecha_inicio(cls, v: Optional[date]) -> Optional[date]:
+        """Validate start date is not in the past if provided"""
+        if v is None:
+            return v
+
+        from datetime import date as dt_date
+        today = dt_date.today()
+        if v < today:
+            raise ValueError('La fecha de inicio no puede ser anterior a hoy')
         return v
 
     @field_validator('fecha_fin')

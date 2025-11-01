@@ -29,7 +29,7 @@ class PromocionService:
     ) -> None:
         """
         Sync all promotions for a business to Firestore.
-        Updates the 'promociones' array in the negocios collection.
+        Stores in 'promociones' collection with negocio_id as document ID.
 
         Args:
             negocio_id: Business ID
@@ -69,26 +69,16 @@ class PromocionService:
 
             logger.info(f"Syncing {len(promociones_array)} promotions to Firestore for negocio_id {negocio_id}")
 
-            # Update Firestore document in 'negocios' collection
-            doc_ref = self.db.collection('negocios').document(str(negocio_id))
+            # Update Firestore document in 'promociones' collection
+            # Use negocio_id as the document ID
+            doc_ref = self.db.collection('promociones').document(str(negocio_id))
 
-            # Use update() to REPLACE the entire promociones array
-            # This ensures deleted promotions are removed from Firestore
-            try:
-                doc_ref.update({
-                    'promociones': promociones_array,
-                    'updated_at': firestore.SERVER_TIMESTAMP
-                })
-            except Exception as e:
-                # If document doesn't exist, create it with set()
-                if 'NOT_FOUND' in str(e) or 'not found' in str(e).lower():
-                    logger.info(f"Document not found for negocio_id {negocio_id}, creating new document")
-                    doc_ref.set({
-                        'promociones': promociones_array,
-                        'updated_at': firestore.SERVER_TIMESTAMP
-                    })
-                else:
-                    raise
+            # Use set() with merge to update or create the document
+            doc_ref.set({
+                'promociones': promociones_array,
+                'negocio_id': negocio_id,
+                'updated_at': firestore.SERVER_TIMESTAMP
+            }, merge=True)
 
             logger.info(f"Firestore sync successful for negocio_id {negocio_id}")
 
@@ -133,6 +123,9 @@ class PromocionService:
             Exception: If database operation fails
         """
         try:
+            # Convert Decimal to float to ensure proper precision in MariaDB
+            valor_descuento_float = float(valor_descuento) if isinstance(valor_descuento, Decimal) else valor_descuento
+
             cursor.execute(
                 """
                 INSERT INTO promociones
@@ -140,7 +133,7 @@ class PromocionService:
                      fecha_inicio, fecha_fin, activo, created_by)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (negocio_id, titulo, descripcion, tipo_descuento, valor_descuento,
+                (negocio_id, titulo, descripcion, tipo_descuento, valor_descuento_float,
                  fecha_inicio, fecha_fin, activo, user_id)
             )
 
@@ -247,7 +240,9 @@ class PromocionService:
 
             if valor_descuento is not None:
                 update_fields.append("valor_descuento = %s")
-                params.append(valor_descuento)
+                # Convert Decimal to float to ensure proper precision
+                valor_descuento_float = float(valor_descuento) if isinstance(valor_descuento, Decimal) else valor_descuento
+                params.append(valor_descuento_float)
 
             if fecha_inicio is not None:
                 update_fields.append("fecha_inicio = %s")
