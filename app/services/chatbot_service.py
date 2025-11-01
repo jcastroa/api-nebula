@@ -97,16 +97,20 @@ class ChatbotConfiguracionService:
             if not result:
                 raise Exception("Failed to retrieve saved configuration from MariaDB")
 
-            logger.info(f"MariaDB operation successful for negocio_id {negocio_id}")
+            # Extract the chatbot configuration ID
+            config_id = result['id']
+
+            logger.info(f"MariaDB operation successful for negocio_id {negocio_id}, config_id: {config_id}")
             mariadb_success = True
 
             # ==========================================
             # STEP 2: Firestore Operation
             # ==========================================
             try:
-                logger.info(f"Saving to Firestore collection 'conocimiento_gpt'")
+                logger.info(f"Saving to Firestore collection 'conocimiento_gpt' with ID {config_id}")
 
-                doc_ref = self.db.collection('conocimiento_gpt').document(str(negocio_id))
+                # Use the chatbot_configuracion.id as Firestore document ID
+                doc_ref = self.db.collection('conocimiento_gpt').document(str(config_id))
 
                 doc_ref.set({
                     'negocio_id': negocio_id,
@@ -114,7 +118,7 @@ class ChatbotConfiguracionService:
                     'updated_at': firestore.SERVER_TIMESTAMP
                 })
 
-                logger.info(f"Firestore operation successful for negocio_id {negocio_id}")
+                logger.info(f"Firestore operation successful for config_id {config_id}")
 
             except Exception as firestore_error:
                 # Firestore failed - ROLLBACK MariaDB
