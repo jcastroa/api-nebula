@@ -22,69 +22,91 @@ class PromocionService:
         self.firestore_service = firestore_service
         self.db = firestore_service.db
 
-    async def sync_all_promociones_to_firestore(
+    async def sync_promocion_to_firestore(
         self,
-        negocio_id: int,
-        promociones: List[Dict[str, Any]]
+        promocion: Dict[str, Any]
     ) -> None:
         """
-        Sync all promotions for a business to Firestore.
-        Stores in 'promociones' collection with negocio_id as document ID.
+        Sync a single promotion to Firestore.
+        Stores in 'promociones' collection with promocion ID as document ID.
 
         Args:
-            negocio_id: Business ID
-            promociones: List of promotion dictionaries
+            promocion: Promotion dictionary with all fields
 
         Raises:
             Exception: If Firestore operation fails
         """
         try:
-            # Build promociones array for Firestore
-            promociones_array = []
-            for promo in promociones:
-                # Convert Decimal to float for Firestore
-                valor_descuento = promo.get('valor_descuento', 0)
-                if isinstance(valor_descuento, Decimal):
-                    valor_descuento = float(valor_descuento)
+            promocion_id = promocion.get('id')
+            if not promocion_id:
+                raise ValueError("Promotion ID is required for Firestore sync")
 
-                # Convert date to string for Firestore
-                fecha_inicio = promo.get('fecha_inicio')
-                if isinstance(fecha_inicio, date):
-                    fecha_inicio = fecha_inicio.isoformat()
+            # Convert Decimal to float for Firestore
+            valor_descuento = promocion.get('valor_descuento', 0)
+            if isinstance(valor_descuento, Decimal):
+                valor_descuento = float(valor_descuento)
 
-                fecha_fin = promo.get('fecha_fin')
-                if isinstance(fecha_fin, date):
-                    fecha_fin = fecha_fin.isoformat()
+            # Convert date to string for Firestore
+            fecha_inicio = promocion.get('fecha_inicio')
+            if isinstance(fecha_inicio, date):
+                fecha_inicio = fecha_inicio.isoformat()
 
-                promociones_array.append({
-                    'id': promo.get('id'),
-                    'titulo': promo.get('titulo', ''),
-                    'descripcion': promo.get('descripcion', ''),
-                    'tipo_descuento': promo.get('tipo_descuento', 'porcentaje'),
-                    'valor_descuento': valor_descuento,
-                    'fecha_inicio': fecha_inicio,
-                    'fecha_fin': fecha_fin,
-                    'activo': promo.get('activo', True)
-                })
+            fecha_fin = promocion.get('fecha_fin')
+            if isinstance(fecha_fin, date):
+                fecha_fin = fecha_fin.isoformat()
 
-            logger.info(f"Syncing {len(promociones_array)} promotions to Firestore for negocio_id {negocio_id}")
+            # Prepare document data
+            doc_data = {
+                'id': promocion_id,
+                'negocio_id': promocion.get('negocio_id'),
+                'titulo': promocion.get('titulo', ''),
+                'descripcion': promocion.get('descripcion', ''),
+                'tipo_descuento': promocion.get('tipo_descuento', 'porcentaje'),
+                'valor_descuento': valor_descuento,
+                'fecha_inicio': fecha_inicio,
+                'fecha_fin': fecha_fin,
+                'activo': promocion.get('activo', True),
+                'updated_at': firestore.SERVER_TIMESTAMP
+            }
+
+            logger.info(f"Syncing promotion {promocion_id} to Firestore")
 
             # Update Firestore document in 'promociones' collection
-            # Use negocio_id as the document ID
-            doc_ref = self.db.collection('promociones').document(str(negocio_id))
+            # Use promocion_id as the document ID
+            doc_ref = self.db.collection('promociones').document(str(promocion_id))
+            doc_ref.set(doc_data, merge=True)
 
-            # Use set() with merge to update or create the document
-            doc_ref.set({
-                'promociones': promociones_array,
-                'negocio_id': negocio_id,
-                'updated_at': firestore.SERVER_TIMESTAMP
-            }, merge=True)
-
-            logger.info(f"Firestore sync successful for negocio_id {negocio_id}")
+            logger.info(f"Firestore sync successful for promocion_id {promocion_id}")
 
         except Exception as e:
-            logger.error(f"Firestore sync failed for negocio_id {negocio_id}: {str(e)}")
+            logger.error(f"Firestore sync failed for promocion: {str(e)}")
             raise Exception(f"Error al sincronizar con Firestore: {str(e)}")
+
+    async def delete_promocion_from_firestore(
+        self,
+        promocion_id: int
+    ) -> None:
+        """
+        Delete a promotion from Firestore.
+
+        Args:
+            promocion_id: Promotion ID
+
+        Raises:
+            Exception: If Firestore operation fails
+        """
+        try:
+            logger.info(f"Deleting promotion {promocion_id} from Firestore")
+
+            # Delete Firestore document
+            doc_ref = self.db.collection('promociones').document(str(promocion_id))
+            doc_ref.delete()
+
+            logger.info(f"Firestore delete successful for promocion_id {promocion_id}")
+
+        except Exception as e:
+            logger.error(f"Firestore delete failed for promocion {promocion_id}: {str(e)}")
+            raise Exception(f"Error al eliminar de Firestore: {str(e)}")
 
     async def create_promocion_with_transaction(
         self,
@@ -368,53 +390,6 @@ class PromocionService:
         except Exception as e:
             logger.error(f"Error deleting promotion in MariaDB: {str(e)}")
             raise
-
-    async def get_all_active_promociones(
-        self,
-        cursor: mysql.connector.cursor.MySQLCursor,
-        negocio_id: int
-    ) -> List[Dict[str, Any]]:
-        """
-        Get all active promotions for Firestore sync.
-
-        Args:
-            cursor: Active database cursor
-            negocio_id: Business ID
-
-        Returns:
-            List of active promotions
-        """
-        cursor.execute(
-            """
-            SELECT
-                id, titulo, descripcion, tipo_descuento, valor_descuento,
-                fecha_inicio, fecha_fin, activo
-            FROM promociones
-            WHERE negocio_id = %s AND eliminado = FALSE AND activo = TRUE
-            ORDER BY fecha_inicio DESC
-            """,
-            (negocio_id,)
-        )
-        results = cursor.fetchall()
-
-        # Convert to list of dictionaries
-        promociones = []
-        for row in results:
-            if isinstance(row, tuple):
-                promociones.append({
-                    'id': row[0],
-                    'titulo': row[1],
-                    'descripcion': row[2],
-                    'tipo_descuento': row[3],
-                    'valor_descuento': row[4],
-                    'fecha_inicio': row[5],
-                    'fecha_fin': row[6],
-                    'activo': row[7]
-                })
-            else:
-                promociones.append(row)
-
-        return promociones
 
 
 # Dependency injection helper

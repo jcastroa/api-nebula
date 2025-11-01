@@ -255,13 +255,10 @@ async def crear_promocion(
         # STEP 2: Firestore Sync
         # ==========================================
         try:
-            # Get all active promotions for this negocio
-            all_promociones = await promocion_service.get_all_active_promociones(cursor, negocio_id)
+            # Sync this specific promotion to Firestore
+            await promocion_service.sync_promocion_to_firestore(result)
 
-            # Sync to Firestore
-            await promocion_service.sync_all_promociones_to_firestore(negocio_id, all_promociones)
-
-            logger.info(f"Firestore sync successful for negocio_id {negocio_id}")
+            logger.info(f"Firestore sync successful for promocion_id {result['id']}")
 
         except Exception as firestore_error:
             # Firestore failed - ROLLBACK MariaDB
@@ -407,13 +404,10 @@ async def actualizar_promocion(
         # STEP 2: Firestore Sync
         # ==========================================
         try:
-            # Get all active promotions
-            all_promociones = await promocion_service.get_all_active_promociones(cursor, negocio_id)
+            # Sync this specific promotion to Firestore
+            await promocion_service.sync_promocion_to_firestore(result)
 
-            # Sync to Firestore
-            await promocion_service.sync_all_promociones_to_firestore(negocio_id, all_promociones)
-
-            logger.info(f"Firestore sync successful for negocio_id {negocio_id}")
+            logger.info(f"Firestore sync successful for promocion_id {promocion_id}")
 
         except Exception as firestore_error:
             logger.error(f"Firestore sync failed: {str(firestore_error)}")
@@ -536,13 +530,10 @@ async def eliminar_promocion(
         # STEP 2: Firestore Sync
         # ==========================================
         try:
-            # Get remaining active promotions
-            all_promociones = await promocion_service.get_all_active_promociones(cursor, negocio_id)
+            # Delete this specific promotion from Firestore
+            await promocion_service.delete_promocion_from_firestore(promocion_id)
 
-            # Sync to Firestore (will remove deleted promotion from array)
-            await promocion_service.sync_all_promociones_to_firestore(negocio_id, all_promociones)
-
-            logger.info(f"Firestore sync successful for negocio_id {negocio_id}")
+            logger.info(f"Firestore delete successful for promocion_id {promocion_id}")
 
         except Exception as firestore_error:
             logger.error(f"Firestore sync failed: {str(firestore_error)}")
